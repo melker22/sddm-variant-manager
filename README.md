@@ -1,21 +1,43 @@
 # SDDM Variant Manager
 
-Graphical tool for KDE/Plasma users to browse, preview, and apply background variants of multi-variant SDDM themes (such as [ZenMatrix Collection](https://github.com/OminduD/sddm-themes)) without editing text files manually.
+Graphical tool for KDE/Plasma users to browse, preview, apply, and install SDDM login screen themes — including multi-variant collections such as [ZenMatrix Collection](https://github.com/OminduD/sddm-themes).
 
 ## Features
 
-- Detects SDDM themes with a `Themes/*.conf` folder under `/usr/share/sddm/themes/` and `~/.local/share/sddm/themes/`
-- Grid gallery with thumbnails (GIF when available, otherwise the background media)
-- Quick embedded video preview
+- Lists **all installed SDDM themes** (`metadata.desktop`) under `/usr/share/sddm/themes/` and `~/.local/share/sddm/themes/`
+- Multi-variant themes: browse `Themes/*.conf` variants, apply a variant, preview backgrounds
+- Simple themes: apply as SDDM current theme and open a full greeter preview
+- High-quality static thumbnails for variant galleries (cached JPEG frames via `ffmpeg`)
+- **Install themes from GitHub** — paste an HTTPS or SSH repo URL and install all valid themes found
 - Full SDDM login preview via `sddm-greeter-qt6 --test-mode`
-- One-click apply with optional SDDM current theme activation
 
 ## Requirements
+
+### Required
 
 - Plasma 6 / Qt 6
 - SDDM
 - `sddm-greeter-qt6`
-- `pkexec` (PolicyKit) for writing system theme files
+- `pkexec` (PolicyKit) for writing system theme files or system-wide installs
+- KF6 Kirigami
+
+### Required for GitHub installation
+
+- **`git`**
+
+```bash
+pamac install git --no-confirm
+```
+
+### Strongly recommended
+
+- **`ffmpeg`** — builds sharp static thumbnails from theme background videos. The app still runs without it, but variant thumbnails fall back to low-resolution GIF previews.
+
+```bash
+pamac install ffmpeg --no-confirm
+```
+
+Only skip `ffmpeg` if you truly cannot install it on your system.
 
 ## Build
 
@@ -38,11 +60,31 @@ This installs the binary to `/usr/local/bin` (or your chosen prefix) and adds a 
 ## Usage
 
 1. Launch **SDDM Variant Manager** from the application menu.
-2. Pick a multi-variant SDDM theme in the sidebar.
-3. Select a background variant from the grid.
-4. Use **Apply variant** to persist the choice, or **Full SDDM preview** to test the login screen.
+2. Pick a theme in the sidebar.
+3. For multi-variant themes, select a variant and click **Apply variant**.
+4. For simple themes, click **Apply as SDDM theme**.
+5. Use **Full SDDM preview** to test the login screen.
 
-Applying or previewing system themes in `/usr/share/sddm/themes/` requires administrator authentication.
+### Install a theme from GitHub
+
+1. Click **Install theme** in the toolbar.
+2. Paste a public GitHub URL, for example:
+   - `https://github.com/user/sddm-theme`
+   - `git@github.com:user/sddm-theme.git`
+3. Leave **Install system-wide** unchecked to install for your user only (`~/.local/share/sddm/themes/`).
+4. Click **Install theme**.
+
+All folders containing `metadata.desktop` in the repository are installed.
+
+### Close full SDDM preview
+
+The preview covers the entire screen. The app stays open in the background.
+
+1. Press **Alt+Tab**
+2. Select **SDDM Variant Manager**
+3. Click **Close preview**
+
+Applying variants, system-wide installs, and writing themes in `/usr/share/sddm/themes/` require administrator authentication.
 
 ## License
 

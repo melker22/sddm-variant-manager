@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QStandardPaths>
 #include <QTemporaryFile>
 #include <QTextStream>
@@ -14,6 +15,8 @@ GreeterPreview::GreeterPreview(QObject *parent)
     : QObject(parent)
 {
     connect(&m_greeterProcess, &QProcess::finished, this, &GreeterPreview::onGreeterFinished);
+    m_greeterProcess.setProcessEnvironment(QProcessEnvironment::systemEnvironment());
+    m_greeterProcess.setProcessChannelMode(QProcess::MergedChannels);
 }
 
 GreeterPreview::~GreeterPreview()
@@ -60,10 +63,13 @@ bool GreeterPreview::restoreMetadata()
         return false;
     }
 
-    QFile::remove(m_backupMetadataPath);
-    m_modifiedMetadata = false;
-    m_originalMetadataPath.clear();
-    m_backupMetadataPath.clear();
+    if (process.exitCode() == 0) {
+        QFile::remove(m_backupMetadataPath);
+        m_modifiedMetadata = false;
+        m_originalMetadataPath.clear();
+        m_backupMetadataPath.clear();
+    }
+
     return process.exitCode() == 0;
 }
 
@@ -125,27 +131,47 @@ void GreeterPreview::preview(const QString &themePath, const QString &metadataPa
         return;
     }
 
-    if (!backupMetadata(metadataPath)) {
-        Q_EMIT previewFinished(false, QStringLiteral("Could not back up metadata.desktop."));
+    if (!QFile::exists(themePath)) {
+        Q_EMIT previewFinished(false, QStringLiteral("Theme directory not found."));
         return;
     }
 
-    if (!writeConfigFileLine(metadataPath, configFile)) {
-        restoreMetadata();
-        Q_EMIT previewFinished(false, QStringLiteral("Could not set preview variant (authentication may have been cancelled)."));
-        return;
+    const bool modifyMetadata = !configFile.isEmpty();
+
+    if (modifyMetadata) {
+        if (!backupMetadata(metadataPath)) {
+            Q_EMIT previewFinished(false, QStringLiteral("Could not back up metadata.desktop."));
+            return;
+        }
+
+        if (!writeConfigFileLine(metadataPath, configFile)) {
+            restoreMetadata();
+            Q_EMIT previewFinished(false, QStringLiteral("Could not set preview variant (authentication may have been cancelled)."));
+            return;
+        }
+
+        m_modifiedMetadata = true;
+    } else {
+        m_modifiedMetadata = false;
+        m_originalMetadataPath.clear();
+        m_backupMetadataPath.clear();
     }
 
-    m_modifiedMetadata = true;
-
+    m_greeterProcess.setWorkingDirectory(themePath);
     m_greeterProcess.start(greeter,
                            {QStringLiteral("--test-mode"),
                             QStringLiteral("--theme"),
                             themePath});
 
-    if (!m_greeterProcess.waitForStarted()) {
-        restoreMetadata();
-        Q_EMIT previewFinished(false, QStringLiteral("Failed to start SDDM greeter preview."));
+    if (!m_greeterProcess.waitForStarted(5000)) {
+        const QString details = QString::fromUtf8(m_greeterProcess.readAll()).trimmed();
+        if (modifyMetadata) {
+            restoreMetadata();
+        }
+        Q_EMIT previewFinished(false,
+                               details.isEmpty()
+                                   ? QStringLiteral("Failed to start SDDM greeter preview.")
+                                   : QStringLiteral("Failed to start SDDM greeter preview: %1").arg(details));
         return;
     }
 
@@ -154,7 +180,12 @@ void GreeterPreview::preview(const QString &themePath, const QString &metadataPa
 
 void GreeterPreview::stopPreview()
 {
-    if (m_greeterProcess.state() != QProcess::NotRunning) {
+    if (m_greeterProcess.state() == QProcess::NotRunning) {
+        return;
+    }
+
+    m_greeterProcess.terminate();
+    if (!m_greeterProcess.waitForFinished(2000)) {
         m_greeterProcess.kill();
         m_greeterProcess.waitForFinished(3000);
     }
@@ -162,13 +193,26 @@ void GreeterPreview::stopPreview()
 
 void GreeterPreview::onGreeterFinished(int exitCode, QProcess::ExitStatus status)
 {
-    Q_UNUSED(exitCode)
     Q_UNUSED(status)
 
+    const bool hadMetadataChanges = m_modifiedMetadata;
+    const QString details = QString::fromUtf8(m_greeterProcess.readAll()).trimmed();
     const bool restored = restoreMetadata();
     Q_EMIT runningChanged();
-    Q_EMIT previewFinished(
-        restored,
-        restored ? QStringLiteral("Preview closed. Theme metadata restored.")
-                 : QStringLiteral("Preview closed, but metadata restore failed."));
+
+    const bool closedNormally = exitCode == 0 || exitCode == 15;
+
+    QString message;
+    if (!restored) {
+        message = QStringLiteral("Preview closed, but metadata restore failed.");
+    } else if (closedNormally) {
+        message = hadMetadataChanges ? QStringLiteral("Preview closed. Theme metadata restored.")
+                                     : QStringLiteral("Preview closed.");
+    } else if (!details.isEmpty()) {
+        message = QStringLiteral("Preview failed: %1").arg(details);
+    } else {
+        message = QStringLiteral("Preview failed (exit code %1).").arg(exitCode);
+    }
+
+    Q_EMIT previewFinished(restored && closedNormally, message);
 }
