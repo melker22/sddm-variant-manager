@@ -3,6 +3,7 @@
 
 #include "greeterpreview.h"
 #include "themeapplier.h"
+#include "themeinstaller.h"
 #include "themescanner.h"
 
 #include <QCoreApplication>
@@ -12,6 +13,7 @@
 #include <QQmlContext>
 #include <QQmlError>
 #include <QDebug>
+#include <QUrl>
 
 int main(int argc, char *argv[])
 {
@@ -20,10 +22,18 @@ int main(int argc, char *argv[])
     QGuiApplication::setOrganizationName(QStringLiteral("Melker"));
     QGuiApplication::setOrganizationDomain(QStringLiteral("github.melker"));
     QGuiApplication::setApplicationVersion(QStringLiteral("1.0.0"));
+    QGuiApplication::setQuitOnLastWindowClosed(true);
 
     ThemeScanner themeScanner;
     ThemeApplier themeApplier;
     GreeterPreview greeterPreview;
+    ThemeInstaller themeInstaller;
+
+    QObject::connect(&app, &QGuiApplication::aboutToQuit, &greeterPreview, [&greeterPreview]() {
+        if (greeterPreview.running()) {
+            greeterPreview.stopPreview();
+        }
+    });
 
     QQmlApplicationEngine engine;
     engine.addImportPath(QStringLiteral("/usr/lib/qt6/qml"));
@@ -34,6 +44,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("themeScanner"), &themeScanner);
     engine.rootContext()->setContextProperty(QStringLiteral("themeApplier"), &themeApplier);
     engine.rootContext()->setContextProperty(QStringLiteral("greeterPreview"), &greeterPreview);
+    engine.rootContext()->setContextProperty(QStringLiteral("themeInstaller"), &themeInstaller);
 
     QObject::connect(
         &themeApplier,
@@ -54,10 +65,10 @@ int main(int argc, char *argv[])
             }
         });
 
-    engine.loadFromModule(QStringLiteral("org.github.melker.sddmvariantmanager"), QStringLiteral("Main"));
+    engine.load(QUrl(QStringLiteral("qrc:/src/qml/Main.qml")));
 
     if (engine.rootObjects().isEmpty()) {
-        qCritical() << "Failed to load QML module org.github.melker.sddmvariantmanager/Main";
+        qCritical() << "Failed to load QML file qrc:/src/qml/Main.qml";
         return -1;
     }
 

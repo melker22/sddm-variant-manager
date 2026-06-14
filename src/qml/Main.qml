@@ -22,6 +22,7 @@ Kirigami.ApplicationWindow {
     property bool activateInSddm: true
     property string statusMessage: ""
     property string searchText: ""
+    readonly property string closePreviewHelp: "To close the full-screen preview: press Alt+Tab, select SDDM Variant Manager, then click Close preview."
 
     readonly property var currentTheme: {
         variantsRevision
@@ -44,7 +45,70 @@ Kirigami.ApplicationWindow {
     readonly property var currentVariant: selectedVariantIndex >= 0 && selectedVariantIndex < currentVariants.length
         ? currentVariants[selectedVariantIndex] : ({})
 
-    Component.onCompleted: ensureThemeSelection()
+    readonly property bool currentThemeHasVariants: currentTheme.hasVariants === true
+    readonly property string previewMediaPath: previewPathForSelection()
+
+    function previewPathForSelection() {
+        variantsRevision
+        if (selectedThemeIndex < 0) {
+            return ""
+        }
+        if (currentThemeHasVariants) {
+            if (selectedVariantIndex < 0 || selectedVariantIndex >= currentVariants.length) {
+                return ""
+            }
+            return currentVariants[selectedVariantIndex].backgroundPath || ""
+        }
+        return currentTheme.previewPath || ""
+    }
+
+    function selectDefaultVariantForTheme() {
+        if (!currentThemeHasVariants || currentVariants.length === 0) {
+            selectedVariantIndex = -1
+            return
+        }
+
+        let defaultIndex = 0
+        for (let i = 0; i < currentVariants.length; ++i) {
+            if (currentVariants[i].isActive) {
+                defaultIndex = i
+                break
+            }
+        }
+        selectedVariantIndex = defaultIndex
+    }
+
+    Component.onCompleted: {
+        ensureThemeSelection()
+        if (!themeScanner.ffmpegAvailable) {
+            statusMessage = "Install ffmpeg for high-quality thumbnails (recommended): pamac install ffmpeg"
+        }
+        if (!themeInstaller.gitAvailable) {
+            if (statusMessage.length > 0) {
+                statusMessage += " | "
+            }
+            statusMessage += "Install git to download themes from GitHub: pamac install git"
+        }
+    }
+
+    function updatePreviewMedia() {
+        previewPlayer.stop()
+        const path = previewPathForSelection()
+        if (path.length > 0) {
+            previewPlayer.source = "file://" + path
+            previewPlayer.play()
+        } else {
+            previewPlayer.source = ""
+        }
+    }
+
+    function startFullPreview() {
+        if (currentThemeHasVariants) {
+            greeterPreview.preview(currentTheme.path, currentTheme.metadataPath, currentVariant.configFile)
+        } else {
+            greeterPreview.preview(currentTheme.path, currentTheme.metadataPath, "")
+        }
+    }
 
     function ensureThemeSelection() {
         if (themeScanner.themeCount > 0 && selectedThemeIndex < 0) {
@@ -59,7 +123,7 @@ Kirigami.ApplicationWindow {
         target: themeApplier
         function onApplyFinished(success, message) {
             root.statusMessage = message
-            if (success && root.activateInSddm) {
+            if (success && root.activateInSddm && root.currentThemeHasVariants) {
                 themeApplier.setSddmCurrentTheme(root.currentTheme.id, true)
             }
         }
@@ -74,9 +138,6 @@ Kirigami.ApplicationWindow {
         target: greeterPreview
         function onPreviewFinished(success, message) {
             root.statusMessage = message
-            if (success) {
-                themeScanner.rescan()
-            }
         }
     }
 
@@ -89,17 +150,64 @@ Kirigami.ApplicationWindow {
             }
             ensureThemeSelection()
             selectedVariantIndex = -1
+            selectDefaultVariantForTheme()
+            updatePreviewMedia()
         }
     }
 
-    onSelectedThemeIndexChanged: selectedVariantIndex = -1
+    Connections {
+        target: themeInstaller
+        function onInstallFinished(success, message, installedThemeIds) {
+            root.statusMessage = message
+            if (success) {
+                themeScanner.rescan()
+                if (installedThemeIds.length > 0) {
+                    const index = themeScanner.themeIndexForId(installedThemeIds[0])
+                    if (index >= 0) {
+                        selectedThemeIndex = index
+                    }
+                }
+            }
+        }
+    }
 
-    onCurrentVariantChanged: {
-        if (currentVariant.backgroundPath) {
-            previewPlayer.source = "file://" + currentVariant.backgroundPath
-            previewPlayer.play()
+    onSelectedThemeIndexChanged: {
+        selectDefaultVariantForTheme()
+        Qt.callLater(updatePreviewMedia)
+    }
+
+    onSelectedVariantIndexChanged: Qt.callLater(updatePreviewMedia)
+
+    component VariantThumbnail: Image {
+        property url mediaSource
+
+        fillMode: Image.PreserveAspectCrop
+        source: mediaSource
+        asynchronous: true
+        smooth: true
+        mipmap: true
+    }
+
+    Connections {
+        target: greeterPreview
+        function onRunningChanged() {
+            if (greeterPreview.running) {
+                root.showMinimized()
+            } else {
+                root.showNormal()
+                root.raise()
+                root.requestActivate()
+            }
+        }
+    }
+
+    onClosing: function(close) {
+        if (greeterPreview.running) {
+            close.accepted = false
+            root.showMinimized()
+            statusMessage = "Preview still running. " + closePreviewHelp
         } else {
-            previewPlayer.stop()
+            Qt.quit()
         }
     }
 
@@ -107,6 +215,11 @@ Kirigami.ApplicationWindow {
         title: root.title
 
         actions: [
+            Kirigami.Action {
+                text: "Install theme"
+                icon.name: "download"
+                onTriggered: pageStack.push(installThemePage)
+            },
             Kirigami.Action {
                 text: "Refresh themes"
                 icon.name: "view-refresh"
@@ -136,8 +249,8 @@ Kirigami.ApplicationWindow {
                         Layout.fillWidth: true
                         wrapMode: Text.Wrap
                         text: themeScanner.themeCount > 0
-                            ? themeScanner.themeCount + " multi-variant theme(s) found"
-                            : "No multi-variant themes found in /usr/share/sddm/themes or ~/.local/share/sddm/themes"
+                            ? themeScanner.themeCount + " SDDM theme(s) found"
+                            : "No SDDM themes found in /usr/share/sddm/themes or ~/.local/share/sddm/themes"
                     }
 
                     ListView {
@@ -167,7 +280,13 @@ Kirigami.ApplicationWindow {
 
                                 Label {
                                     width: parent.width
-                                    text: themeScanner.themeAt(index).id
+                                    text: {
+                                        const theme = themeScanner.themeAt(index)
+                                        if (theme.hasVariants) {
+                                            return theme.variants.length + " variants · " + theme.installScope
+                                        }
+                                        return "Simple theme · " + theme.installScope
+                                    }
                                     opacity: 0.7
                                     font.pointSize: Kirigami.Theme.smallFont.pointSize
                                     elide: Text.ElideRight
@@ -198,90 +317,101 @@ Kirigami.ApplicationWindow {
                         placeholderText: "Search variants…"
                         text: root.searchText
                         onTextEdited: root.searchText = text
-                        enabled: currentVariants.length > 0
+                        enabled: currentThemeHasVariants && currentVariants.length > 0
                     }
 
                     Kirigami.PlaceholderMessage {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         visible: themeScanner.themeCount === 0
-                        text: "Install a SDDM theme with a Themes/*.conf folder (for example ZenMatrix / hyprlands-video-themes), then click Refresh themes."
+                        text: "No SDDM themes installed yet. Use Install theme to download one from GitHub, or install a theme manually and click Refresh themes."
                         icon.name: "preferences-desktop-theme"
                     }
 
                     Kirigami.PlaceholderMessage {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        visible: themeScanner.themeCount > 0 && currentVariants.length === 0
-                        text: "Select a theme on the left to browse its background variants."
+                        visible: themeScanner.themeCount > 0 && selectedThemeIndex < 0
+                        text: "Select a theme on the left."
                         icon.name: "view-grid"
                     }
 
-                    ScrollView {
+                    Kirigami.PlaceholderMessage {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        visible: themeScanner.themeCount > 0 && selectedThemeIndex >= 0 && !currentThemeHasVariants
+                        text: "This theme has no background variants. Use the panel on the right to apply it or open a full SDDM preview."
+                        icon.name: "image-missing"
+                    }
+
+                    Kirigami.PlaceholderMessage {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: themeScanner.themeCount > 0 && currentThemeHasVariants && currentVariants.length === 0
+                        text: "This theme has no readable variants in Themes/*.conf."
+                        icon.name: "view-grid"
+                    }
+
+                    GridView {
+                        id: variantGrid
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: currentThemeHasVariants && currentVariants.length > 0
                         clip: true
-                        visible: currentVariants.length > 0
+                        model: filteredVariants
+                        cellWidth: 220
+                        cellHeight: 268
 
-                        GridLayout {
-                            width: parent.width
-                            columns: Math.max(1, Math.floor(width / 220))
-                            columnSpacing: Kirigami.Units.smallSpacing
-                            rowSpacing: Kirigami.Units.smallSpacing
+                        delegate: Item {
+                            required property var modelData
+                            required property int index
 
-                            Repeater {
-                                model: filteredVariants
+                            width: variantGrid.cellWidth - Kirigami.Units.smallSpacing
+                            height: variantGrid.cellHeight - Kirigami.Units.smallSpacing
 
-                                delegate: Kirigami.Card {
-                                    required property var modelData
-                                    required property int index
+                            property int sourceIndex: {
+                                for (let i = 0; i < currentVariants.length; ++i) {
+                                    if (currentVariants[i].id === modelData.id) {
+                                        return i
+                                    }
+                                }
+                                return -1
+                            }
 
-                                    property int sourceIndex: {
-                                        for (let i = 0; i < currentVariants.length; ++i) {
-                                            if (currentVariants[i].id === modelData.id) {
-                                                return i
-                                            }
-                                        }
-                                        return -1
+                            Kirigami.Card {
+                                anchors.fill: parent
+                                highlighted: root.selectedVariantIndex === sourceIndex || modelData.isActive
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: Kirigami.Units.smallSpacing
+                                    spacing: Kirigami.Units.smallSpacing
+
+                                    VariantThumbnail {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 150
+                                        mediaSource: modelData.thumbnailPath ? "file://" + modelData.thumbnailPath : ""
                                     }
 
-                                    Layout.preferredWidth: 200
-                                    Layout.preferredHeight: 230
-                                    highlighted: root.selectedVariantIndex === sourceIndex || modelData.isActive
+                                    Kirigami.Heading {
+                                        Layout.fillWidth: true
+                                        level: 3
+                                        text: modelData.displayName
+                                        elide: Text.ElideRight
+                                    }
 
-                                    ColumnLayout {
-                                        anchors.fill: parent
-                                        anchors.margins: Kirigami.Units.smallSpacing
-                                        spacing: Kirigami.Units.smallSpacing
+                                    Label {
+                                        visible: modelData.isActive
+                                        text: "Active"
+                                        color: Kirigami.Theme.positiveTextColor
+                                    }
 
-                                        Image {
-                                            Layout.fillWidth: true
-                                            Layout.preferredHeight: 120
-                                            fillMode: Image.PreserveAspectCrop
-                                            asynchronous: true
-                                            source: modelData.thumbnailPath ? "file://" + modelData.thumbnailPath : ""
-                                        }
+                                    Item { Layout.fillHeight: true }
 
-                                        Kirigami.Heading {
-                                            Layout.fillWidth: true
-                                            level: 3
-                                            text: modelData.displayName
-                                            elide: Text.ElideRight
-                                        }
-
-                                        Label {
-                                            visible: modelData.isActive
-                                            text: "Active"
-                                            color: Kirigami.Theme.positiveTextColor
-                                        }
-
-                                        Item { Layout.fillHeight: true }
-
-                                        Button {
-                                            Layout.fillWidth: true
-                                            text: "Select"
-                                            onClicked: root.selectedVariantIndex = sourceIndex
-                                        }
+                                    Button {
+                                        Layout.fillWidth: true
+                                        text: "Select"
+                                        onClicked: root.selectedVariantIndex = sourceIndex
                                     }
                                 }
                             }
@@ -301,7 +431,9 @@ Kirigami.ApplicationWindow {
 
                     Kirigami.Heading {
                         level: 2
-                        text: currentVariant.displayName || "Preview"
+                        text: currentThemeHasVariants
+                            ? (currentVariant.displayName || currentTheme.name || "Preview")
+                            : (currentTheme.name || "Preview")
                     }
 
                     Rectangle {
@@ -332,8 +464,10 @@ Kirigami.ApplicationWindow {
 
                         Kirigami.PlaceholderMessage {
                             anchors.centerIn: parent
-                            visible: !currentVariant.backgroundPath
-                            text: "Select a variant to preview its background"
+                            visible: previewMediaPath.length === 0
+                            text: currentThemeHasVariants
+                                ? "Select a variant to preview its background"
+                                : "No preview image found for this theme"
                         }
                     }
 
@@ -345,6 +479,7 @@ Kirigami.ApplicationWindow {
 
                     Button {
                         Layout.fillWidth: true
+                        visible: currentThemeHasVariants
                         text: "Apply variant"
                         icon.name: "dialog-ok-apply"
                         enabled: currentVariant.configFile !== undefined
@@ -353,10 +488,39 @@ Kirigami.ApplicationWindow {
 
                     Button {
                         Layout.fillWidth: true
-                        text: greeterPreview.running ? "Preview running…" : "Full SDDM preview"
-                        icon.name: "system-run"
-                        enabled: currentVariant.configFile !== undefined && !greeterPreview.running
-                        onClicked: greeterPreview.preview(currentTheme.path, currentTheme.metadataPath, currentVariant.configFile)
+                        visible: !currentThemeHasVariants && selectedThemeIndex >= 0
+                        text: "Apply as SDDM theme"
+                        icon.name: "dialog-ok-apply"
+                        enabled: currentTheme.id !== undefined
+                        onClicked: themeApplier.applySimpleTheme(currentTheme.id, root.activateInSddm)
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        text: closePreviewHelp
+                        opacity: 0.85
+                    }
+
+                    Button {
+                        Layout.fillWidth: true
+                        text: greeterPreview.running ? "Close preview" : "Full SDDM preview"
+                        icon.name: greeterPreview.running ? "window-close" : "system-run"
+                        enabled: (selectedThemeIndex >= 0 && (currentThemeHasVariants ? currentVariant.configFile !== undefined : true)) || greeterPreview.running
+                        onClicked: {
+                            if (greeterPreview.running) {
+                                greeterPreview.stopPreview()
+                            } else {
+                                startFullPreview()
+                            }
+                        }
+                    }
+
+                    Kirigami.InlineMessage {
+                        Layout.fillWidth: true
+                        visible: greeterPreview.running
+                        text: closePreviewHelp
+                        type: Kirigami.MessageType.Information
                     }
 
                     ColumnLayout {
@@ -371,13 +535,20 @@ Kirigami.ApplicationWindow {
                         Label {
                             Layout.fillWidth: true
                             wrapMode: Text.Wrap
+                            text: "Type: " + (currentThemeHasVariants ? "Multi-variant" : "Simple")
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            visible: currentThemeHasVariants
                             text: "Config: " + (currentVariant.configFile || "—")
                         }
 
                         Label {
                             Layout.fillWidth: true
                             wrapMode: Text.Wrap
-                            text: "Background: " + (currentVariant.backgroundPath || "—")
+                            text: "Background: " + (previewMediaPath || "—")
                         }
                     }
 
@@ -390,6 +561,71 @@ Kirigami.ApplicationWindow {
                         type: Kirigami.MessageType.Information
                     }
                 }
+            }
+        }
+    }
+
+    Component {
+        id: installThemePage
+
+        Kirigami.Page {
+            title: "Install SDDM theme"
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Kirigami.Units.largeSpacing
+                spacing: Kirigami.Units.largeSpacing
+
+                Kirigami.Heading {
+                    level: 2
+                    text: "Install from GitHub"
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    text: "Paste a public GitHub repository URL (HTTPS or SSH). All valid SDDM themes found in the repository will be installed."
+                }
+
+                TextField {
+                    id: repoUrlField
+                    Layout.fillWidth: true
+                    placeholderText: "https://github.com/user/sddm-theme"
+                }
+
+                CheckBox {
+                    id: systemWideCheck
+                    text: "Install system-wide (/usr/share/sddm/themes/) — requires admin password"
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    opacity: 0.85
+                    text: "Default install location: ~/.local/share/sddm/themes/. HTTPS works for public repos. SSH requires your GitHub key to be configured."
+                }
+
+                Button {
+                    Layout.fillWidth: true
+                    text: themeInstaller.installing ? "Installing…" : "Install theme"
+                    icon.name: "download"
+                    enabled: !themeInstaller.installing && repoUrlField.text.trim().length > 0
+                    onClicked: themeInstaller.installFromUrl(repoUrlField.text.trim(), systemWideCheck.checked)
+                }
+
+                BusyIndicator {
+                    Layout.alignment: Qt.AlignHCenter
+                    running: themeInstaller.installing
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    visible: themeInstaller.progressMessage.length > 0
+                    text: themeInstaller.progressMessage
+                }
+
+                Item { Layout.fillHeight: true }
             }
         }
     }

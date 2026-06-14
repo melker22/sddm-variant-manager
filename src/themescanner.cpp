@@ -6,7 +6,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QMetaObject>
+#include <QProcess>
 #include <QStandardPaths>
+#include <QtConcurrent>
 #include <QTextStream>
 
 ThemeScanner::ThemeScanner(QObject *parent)
@@ -33,11 +36,17 @@ void ThemeScanner::rescan()
     }
 
     Q_EMIT themesChanged();
+    generateMissingThumbnails();
 }
 
 int ThemeScanner::themeCount() const
 {
     return m_themes.size();
+}
+
+bool ThemeScanner::ffmpegAvailable() const
+{
+    return !QStandardPaths::findExecutable(QStringLiteral("ffmpeg")).isEmpty();
 }
 
 QVariantMap ThemeScanner::themeAt(int index) const
@@ -54,6 +63,16 @@ QVariantList ThemeScanner::variantsForTheme(int themeIndex) const
     return theme.value(QStringLiteral("variants")).toList();
 }
 
+int ThemeScanner::themeIndexForId(const QString &themeId) const
+{
+    for (int i = 0; i < m_themes.size(); ++i) {
+        if (m_themes.at(i).toMap().value(QStringLiteral("id")).toString() == themeId) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 void ThemeScanner::scanBaseDirectory(const QString &basePath)
 {
     QDir baseDir(basePath);
@@ -61,10 +80,14 @@ void ThemeScanner::scanBaseDirectory(const QString &basePath)
         return;
     }
 
+    const QString installScope = basePath.startsWith(QStringLiteral("/usr/share/"))
+        ? QStringLiteral("system")
+        : QStringLiteral("user");
+
     const QStringList themeDirs = baseDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     for (const QString &dirName : themeDirs) {
         const QString themePath = baseDir.absoluteFilePath(dirName);
-        const QVariantMap entry = buildThemeEntry(themePath);
+        const QVariantMap entry = buildThemeEntry(themePath, installScope);
         if (entry.isEmpty()) {
             continue;
         }
@@ -108,33 +131,278 @@ QString ThemeScanner::readConfValue(const QString &filePath, const QString &key)
     return readDesktopValue(filePath, key);
 }
 
+bool ThemeScanner::isVideoFile(const QString &path)
+{
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    return suffix == QStringLiteral("mp4")
+        || suffix == QStringLiteral("webm")
+        || suffix == QStringLiteral("mov")
+        || suffix == QStringLiteral("mkv");
+}
+
+QString ThemeScanner::thumbnailCachePathForVideo(const QString &videoPath)
+{
+    const QFileInfo info(videoPath);
+    const QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+        + QStringLiteral("/thumbnails");
+
+    return cacheDir + QDir::separator() + info.completeBaseName()
+        + QStringLiteral("-") + QString::number(info.lastModified().toSecsSinceEpoch())
+        + QStringLiteral(".jpg");
+}
+
+bool ThemeScanner::generateVideoThumbnail(const QString &videoPath, const QString &outputPath)
+{
+    const QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    if (ffmpeg.isEmpty() || !QFile::exists(videoPath)) {
+        return false;
+    }
+
+    QDir().mkpath(QFileInfo(outputPath).absolutePath());
+
+    QProcess process;
+    process.start(ffmpeg,
+                  {QStringLiteral("-y"),
+                   QStringLiteral("-ss"),
+                   QStringLiteral("1"),
+                   QStringLiteral("-i"),
+                   videoPath,
+                   QStringLiteral("-frames:v"),
+                   QStringLiteral("1"),
+                   QStringLiteral("-vf"),
+                   QStringLiteral("scale=640:-2"),
+                   QStringLiteral("-q:v"),
+                   QStringLiteral("4"),
+                   outputPath});
+
+    if (!process.waitForFinished(20000) || process.exitCode() != 0) {
+        return false;
+    }
+
+    return QFile::exists(outputPath);
+}
+
 QString ThemeScanner::resolveThumbnail(const QString &themePath, const QString &backgroundRel)
 {
     const QFileInfo backgroundInfo(backgroundRel);
     const QString baseName = backgroundInfo.completeBaseName();
+    const QString backgroundAbs = themePath + QStringLiteral("/") + backgroundRel;
+    const QString backgroundsDir = themePath + QStringLiteral("/Backgrounds/");
 
-    const QStringList candidates = {
-        themePath + QStringLiteral("/Backgrounds/gifs/") + baseName + QStringLiteral(".gif"),
-        themePath + QStringLiteral("/Backgrounds/gifs/") + baseName + QStringLiteral(".GIF"),
-        themePath + QStringLiteral("/") + backgroundRel,
+    static const QStringList staticExtensions = {
+        QStringLiteral(".jpg"),
+        QStringLiteral(".jpeg"),
+        QStringLiteral(".png"),
+        QStringLiteral(".webp"),
     };
 
-    for (const QString &candidate : candidates) {
+    for (const QString &extension : staticExtensions) {
+        const QString candidate = backgroundsDir + baseName + extension;
         if (QFile::exists(candidate)) {
             return candidate;
         }
     }
 
-    return themePath + QStringLiteral("/") + backgroundRel;
+    if (isVideoFile(backgroundAbs) && QFile::exists(backgroundAbs)) {
+        const QString cached = thumbnailCachePathForVideo(backgroundAbs);
+        if (QFile::exists(cached)) {
+            return cached;
+        }
+    }
+
+    const QStringList gifCandidates = {
+        backgroundsDir + QStringLiteral("gifs/") + baseName + QStringLiteral(".gif"),
+        backgroundsDir + QStringLiteral("gifs/") + baseName + QStringLiteral(".GIF"),
+    };
+
+    for (const QString &candidate : gifCandidates) {
+        if (QFile::exists(candidate)) {
+            return candidate;
+        }
+    }
+
+    if (QFile::exists(backgroundAbs) && !isVideoFile(backgroundAbs)) {
+        return backgroundAbs;
+    }
+
+    return {};
 }
 
-QVariantMap ThemeScanner::buildThemeEntry(const QString &themePath)
+void ThemeScanner::refreshThumbnailPaths()
 {
-    const QString metadataPath = themePath + QStringLiteral("/metadata.desktop");
-    const QString themesDirPath = themePath + QStringLiteral("/Themes");
+    for (int themeIndex = 0; themeIndex < m_themes.size(); ++themeIndex) {
+        QVariantMap theme = m_themes.at(themeIndex).toMap();
+        const QString themePath = theme.value(QStringLiteral("path")).toString();
+        const QString metadataPath = theme.value(QStringLiteral("metadataPath")).toString();
+        const bool hasVariants = theme.value(QStringLiteral("hasVariants")).toBool();
 
+        if (hasVariants) {
+            QVariantList variants = theme.value(QStringLiteral("variants")).toList();
+            for (int variantIndex = 0; variantIndex < variants.size(); ++variantIndex) {
+                QVariantMap variant = variants.at(variantIndex).toMap();
+                const QString backgroundPath = variant.value(QStringLiteral("backgroundPath")).toString();
+                const QString backgroundRel = QDir(themePath).relativeFilePath(backgroundPath);
+                variant.insert(QStringLiteral("thumbnailPath"), resolveThumbnail(themePath, backgroundRel));
+                variants[variantIndex] = variant;
+            }
+            theme.insert(QStringLiteral("variants"), variants);
+        } else {
+            const QString previewPath = resolveSimpleThemePreview(themePath, metadataPath);
+            theme.insert(QStringLiteral("previewPath"), previewPath);
+            theme.insert(QStringLiteral("thumbnailPath"), previewPath);
+        }
+
+        m_themes[themeIndex] = theme;
+    }
+}
+
+void ThemeScanner::generateMissingThumbnails()
+{
+    struct ThumbnailJob {
+        QString videoPath;
+        QString cachePath;
+    };
+
+    QList<ThumbnailJob> jobs;
+    for (const QVariant &themeVariant : std::as_const(m_themes)) {
+        const QVariantMap theme = themeVariant.toMap();
+        const QVariantList variants = theme.value(QStringLiteral("variants")).toList();
+        for (const QVariant &variantVariant : variants) {
+            const QString backgroundPath = variantVariant.toMap().value(QStringLiteral("backgroundPath")).toString();
+            if (!isVideoFile(backgroundPath) || !QFile::exists(backgroundPath)) {
+                continue;
+            }
+
+            const QString cachePath = thumbnailCachePathForVideo(backgroundPath);
+            if (QFile::exists(cachePath)) {
+                continue;
+            }
+
+            jobs.append({backgroundPath, cachePath});
+        }
+
+        if (!theme.value(QStringLiteral("hasVariants")).toBool()) {
+            const QString previewPath = theme.value(QStringLiteral("previewPath")).toString();
+            if (isVideoFile(previewPath) && QFile::exists(previewPath)) {
+                const QString cachePath = thumbnailCachePathForVideo(previewPath);
+                if (!QFile::exists(cachePath)) {
+                    jobs.append({previewPath, cachePath});
+                }
+            }
+        }
+    }
+
+    if (jobs.isEmpty()) {
+        return;
+    }
+
+    (void)QtConcurrent::run([this, jobs]() {
+        bool updated = false;
+        for (const ThumbnailJob &job : jobs) {
+            if (generateVideoThumbnail(job.videoPath, job.cachePath)) {
+                updated = true;
+            }
+        }
+
+        if (!updated) {
+            return;
+        }
+
+        QMetaObject::invokeMethod(this, [this]() {
+            refreshThumbnailPaths();
+            Q_EMIT themesChanged();
+        }, Qt::QueuedConnection);
+    });
+}
+
+QString ThemeScanner::resolveSimpleThemePreview(const QString &themePath, const QString &metadataPath)
+{
+    auto resolveExistingMedia = [&](const QString &relativePath) -> QString {
+        if (relativePath.isEmpty()) {
+            return {};
+        }
+
+        const QString candidate = themePath + QStringLiteral("/") + relativePath;
+        if (!QFile::exists(candidate)) {
+            return {};
+        }
+
+        if (isVideoFile(candidate)) {
+            const QString cached = thumbnailCachePathForVideo(candidate);
+            return QFile::exists(cached) ? cached : candidate;
+        }
+
+        return candidate;
+    };
+
+    const QString screenshot = readDesktopValue(metadataPath, QStringLiteral("Screenshot"));
+    const QString screenshotPath = resolveExistingMedia(screenshot);
+    if (!screenshotPath.isEmpty()) {
+        return screenshotPath;
+    }
+
+    const QString configRelative = readDesktopValue(metadataPath, QStringLiteral("ConfigFile"));
+    if (!configRelative.isEmpty()) {
+        const QString configPath = themePath + QStringLiteral("/") + configRelative;
+        const QString configBackground = readDesktopValue(configPath, QStringLiteral("background"));
+        const QString configBackgroundPath = resolveExistingMedia(configBackground);
+        if (!configBackgroundPath.isEmpty()) {
+            return configBackgroundPath;
+        }
+    }
+
+    static const QStringList metadataKeys = {
+        QStringLiteral("Background"),
+        QStringLiteral("ThemeBackground"),
+    };
+
+    for (const QString &key : metadataKeys) {
+        const QString metadataBackgroundPath = resolveExistingMedia(readDesktopValue(metadataPath, key));
+        if (!metadataBackgroundPath.isEmpty()) {
+            return metadataBackgroundPath;
+        }
+    }
+
+    static const QStringList commonFiles = {
+        QStringLiteral("preview.png"),
+        QStringLiteral("preview.jpg"),
+        QStringLiteral("background.jpg"),
+        QStringLiteral("background.png"),
+        QStringLiteral("Backgrounds/preview.jpg"),
+        QStringLiteral("Backgrounds/preview.png"),
+    };
+
+    for (const QString &relativePath : commonFiles) {
+        const QString candidate = themePath + QStringLiteral("/") + relativePath;
+        if (QFile::exists(candidate)) {
+            return candidate;
+        }
+    }
+
+    const QDir backgroundsDir(themePath + QStringLiteral("/Backgrounds"));
+    if (backgroundsDir.exists()) {
+        const QStringList images = backgroundsDir.entryList(
+            {QStringLiteral("*.jpg"), QStringLiteral("*.jpeg"), QStringLiteral("*.png"), QStringLiteral("*.webp"),
+             QStringLiteral("*.mp4"), QStringLiteral("*.webm")},
+            QDir::Files);
+        if (!images.isEmpty()) {
+            const QString candidate = backgroundsDir.absoluteFilePath(images.constFirst());
+            if (isVideoFile(candidate)) {
+                const QString cached = thumbnailCachePathForVideo(candidate);
+                return QFile::exists(cached) ? cached : candidate;
+            }
+            return candidate;
+        }
+    }
+
+    return {};
+}
+
+QVariantList ThemeScanner::buildVariantList(const QString &themePath, const QString &metadataPath)
+{
+    const QString themesDirPath = themePath + QStringLiteral("/Themes");
     QDir themesDir(themesDirPath);
-    if (!QFile::exists(metadataPath) || !themesDir.exists()) {
+    if (!themesDir.exists()) {
         return {};
     }
 
@@ -144,10 +412,8 @@ QVariantMap ThemeScanner::buildThemeEntry(const QString &themePath)
     }
 
     const QString activeConfigFile = readDesktopValue(metadataPath, QStringLiteral("ConfigFile"));
-    const QString themeName = readDesktopValue(metadataPath, QStringLiteral("Name"));
-    const QString themeId = QFileInfo(themePath).fileName();
-
     QVariantList variants;
+
     for (const QString &confFile : confFiles) {
         const QString confPath = themesDir.absoluteFilePath(confFile);
         const QString variantId = QFileInfo(confFile).completeBaseName();
@@ -165,12 +431,41 @@ QVariantMap ThemeScanner::buildThemeEntry(const QString &themePath)
         variants.append(variant);
     }
 
+    return variants;
+}
+
+QVariantMap ThemeScanner::buildThemeEntry(const QString &themePath, const QString &installScope)
+{
+    const QString metadataPath = themePath + QStringLiteral("/metadata.desktop");
+    if (!QFile::exists(metadataPath)) {
+        return {};
+    }
+
+    const QString themeName = readDesktopValue(metadataPath, QStringLiteral("Name"));
+    const QString themeId = QFileInfo(themePath).fileName();
+    const QVariantList variants = buildVariantList(themePath, metadataPath);
+    const bool hasVariants = !variants.isEmpty();
+
     QVariantMap theme;
     theme.insert(QStringLiteral("id"), themeId);
     theme.insert(QStringLiteral("name"), themeName.isEmpty() ? themeId : themeName);
     theme.insert(QStringLiteral("path"), themePath);
     theme.insert(QStringLiteral("metadataPath"), metadataPath);
-    theme.insert(QStringLiteral("activeConfigFile"), activeConfigFile);
+    theme.insert(QStringLiteral("installScope"), installScope);
+    theme.insert(QStringLiteral("hasVariants"), hasVariants);
     theme.insert(QStringLiteral("variants"), variants);
+
+    if (hasVariants) {
+        theme.insert(QStringLiteral("activeConfigFile"),
+                     readDesktopValue(metadataPath, QStringLiteral("ConfigFile")));
+        theme.insert(QStringLiteral("previewPath"), QString());
+        theme.insert(QStringLiteral("thumbnailPath"), QString());
+    } else {
+        const QString previewPath = resolveSimpleThemePreview(themePath, metadataPath);
+        theme.insert(QStringLiteral("activeConfigFile"), QString());
+        theme.insert(QStringLiteral("previewPath"), previewPath);
+        theme.insert(QStringLiteral("thumbnailPath"), previewPath);
+    }
+
     return theme;
 }
