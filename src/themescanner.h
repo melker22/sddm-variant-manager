@@ -10,14 +10,15 @@ class ThemeScanner : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QVariantList themes READ themes NOTIFY themesChanged)
+    Q_PROPERTY(int themeCount READ themeCount NOTIFY themesChanged)
 
 public:
     explicit ThemeScanner(QObject *parent = nullptr);
 
     QVariantList themes() const;
+    int themeCount() const;
 
     Q_INVOKABLE void rescan();
-    Q_INVOKABLE int themeCount() const;
     Q_INVOKABLE QVariantMap themeAt(int index) const;
     Q_INVOKABLE QVariantList variantsForTheme(int themeIndex) const;
 
