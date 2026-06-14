@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.github.melker.sddmvariantmanager</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>SDDM Variant Manager</name>
+  <summary>Manage SDDM login screen background variants</summary>
+  <description>
+    <p>
+      SDDM Variant Manager detects SDDM themes that ship multiple background
+      variants in a Themes/ folder and lets you browse, preview, and apply them
+      without manually editing metadata.desktop or .conf files.
+    </p>
+    <p>
+      Features include GIF/video thumbnails, an embedded quick preview, and a
+      full SDDM greeter preview using sddm-greeter-qt6 --test-mode.
+    </p>
+  </description>
+  <launchable type="desktop-id">org.github.melker.sddmvariantmanager.desktop</launchable>
+  <url type="homepage">https://github.com/melker/sddm-variant-manager</url>
+  <developer_name>Melker Halberd Pereira Alves</developer_name>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.0.0" date="2026-06-13"/>
+  </releases>
+</component>
