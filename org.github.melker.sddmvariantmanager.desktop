@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=SDDM Variant Manager
+GenericName=SDDM Theme Variants
+Comment=Browse, preview and apply SDDM theme background variants
+Exec=sddm-variant-manager
+Icon=preferences-desktop-theme
+Terminal=false
+Categories=Qt;KDE;Settings;System;
+Keywords=sddm;theme;login;variant;background;
+StartupNotify=true
+X-KDE-SubstituteUntitled=false
