@@ -10,6 +10,8 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlError>
+#include <QDebug>
 
 int main(int argc, char *argv[])
 {
@@ -43,9 +45,19 @@ int main(int argc, char *argv[])
             }
         });
 
+    QObject::connect(
+        &engine,
+        &QQmlApplicationEngine::warnings,
+        [](const QList<QQmlError> &warnings) {
+            for (const QQmlError &error : warnings) {
+                qWarning().noquote() << error.toString();
+            }
+        });
+
     engine.loadFromModule(QStringLiteral("org.github.melker.sddmvariantmanager"), QStringLiteral("Main"));
 
     if (engine.rootObjects().isEmpty()) {
+        qCritical() << "Failed to load QML module org.github.melker.sddmvariantmanager/Main";
         return -1;
     }
 
