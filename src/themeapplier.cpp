@@ -87,6 +87,25 @@ bool ThemeApplier::applyVariant(const QString &metadataPath, const QString &conf
     return ok;
 }
 
+bool ThemeApplier::applySimpleTheme(const QString &themeId, bool activateInSddm)
+{
+    if (themeId.isEmpty()) {
+        Q_EMIT applyFinished(false, QStringLiteral("Invalid theme id."));
+        return false;
+    }
+
+    if (!activateInSddm) {
+        Q_EMIT applyFinished(true, QStringLiteral("SDDM theme activation skipped."));
+        return true;
+    }
+
+    const bool ok = setSddmCurrentTheme(themeId, true);
+    Q_EMIT applyFinished(ok,
+                         ok ? QStringLiteral("Theme applied as SDDM current theme.")
+                            : QStringLiteral("Failed to update SDDM current theme."));
+    return ok;
+}
+
 bool ThemeApplier::setSddmCurrentTheme(const QString &themeId, bool enabled)
 {
     if (!enabled) {

@@ -13,6 +13,7 @@ public:
     explicit ThemeApplier(QObject *parent = nullptr);
 
     Q_INVOKABLE bool applyVariant(const QString &metadataPath, const QString &configFile);
+    Q_INVOKABLE bool applySimpleTheme(const QString &themeId, bool activateInSddm);
     Q_INVOKABLE bool setSddmCurrentTheme(const QString &themeId, bool enabled);
 
 Q_SIGNALS:
