@@ -140,6 +140,21 @@ bool ThemeScanner::isVideoFile(const QString &path)
         || suffix == QStringLiteral("mkv");
 }
 
+bool ThemeScanner::isGifFile(const QString &path)
+{
+    return QFileInfo(path).suffix().compare(QStringLiteral("gif"), Qt::CaseInsensitive) == 0;
+}
+
+bool ThemeScanner::pathIsVideo(const QString &path) const
+{
+    return isVideoFile(path);
+}
+
+bool ThemeScanner::pathIsGif(const QString &path) const
+{
+    return isGifFile(path);
+}
+
 QString ThemeScanner::thumbnailCachePathForVideo(const QString &videoPath)
 {
     const QFileInfo info(videoPath);
@@ -162,7 +177,10 @@ bool ThemeScanner::generateVideoThumbnail(const QString &videoPath, const QStrin
 
     QProcess process;
     process.start(ffmpeg,
-                  {QStringLiteral("-y"),
+                  {QStringLiteral("-hide_banner"),
+                   QStringLiteral("-loglevel"),
+                   QStringLiteral("error"),
+                   QStringLiteral("-y"),
                    QStringLiteral("-ss"),
                    QStringLiteral("1"),
                    QStringLiteral("-i"),
@@ -249,7 +267,7 @@ void ThemeScanner::refreshThumbnailPaths()
         } else {
             const QString previewPath = resolveSimpleThemePreview(themePath, metadataPath);
             theme.insert(QStringLiteral("previewPath"), previewPath);
-            theme.insert(QStringLiteral("thumbnailPath"), previewPath);
+            theme.insert(QStringLiteral("thumbnailPath"), resolveSimpleThemeThumbnail(previewPath));
         }
 
         m_themes[themeIndex] = theme;
@@ -327,11 +345,6 @@ QString ThemeScanner::resolveSimpleThemePreview(const QString &themePath, const 
             return {};
         }
 
-        if (isVideoFile(candidate)) {
-            const QString cached = thumbnailCachePathForVideo(candidate);
-            return QFile::exists(cached) ? cached : candidate;
-        }
-
         return candidate;
     };
 
@@ -387,15 +400,27 @@ QString ThemeScanner::resolveSimpleThemePreview(const QString &themePath, const 
             QDir::Files);
         if (!images.isEmpty()) {
             const QString candidate = backgroundsDir.absoluteFilePath(images.constFirst());
-            if (isVideoFile(candidate)) {
-                const QString cached = thumbnailCachePathForVideo(candidate);
-                return QFile::exists(cached) ? cached : candidate;
-            }
             return candidate;
         }
     }
 
     return {};
+}
+
+QString ThemeScanner::resolveSimpleThemeThumbnail(const QString &previewPath)
+{
+    if (previewPath.isEmpty()) {
+        return {};
+    }
+
+    if (isVideoFile(previewPath)) {
+        const QString cached = thumbnailCachePathForVideo(previewPath);
+        if (QFile::exists(cached)) {
+            return cached;
+        }
+    }
+
+    return previewPath;
 }
 
 QVariantList ThemeScanner::buildVariantList(const QString &themePath, const QString &metadataPath)
@@ -464,7 +489,7 @@ QVariantMap ThemeScanner::buildThemeEntry(const QString &themePath, const QStrin
         const QString previewPath = resolveSimpleThemePreview(themePath, metadataPath);
         theme.insert(QStringLiteral("activeConfigFile"), QString());
         theme.insert(QStringLiteral("previewPath"), previewPath);
-        theme.insert(QStringLiteral("thumbnailPath"), previewPath);
+        theme.insert(QStringLiteral("thumbnailPath"), resolveSimpleThemeThumbnail(previewPath));
     }
 
     return theme;
