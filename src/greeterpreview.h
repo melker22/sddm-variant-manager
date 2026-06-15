@@ -29,8 +29,9 @@ private:
     QString m_backupMetadataPath;
     QString m_originalMetadataPath;
     bool m_modifiedMetadata = false;
+    bool m_stoppedByUser = false;
 
-    QString greeterBinary() const;
+    QString greeterBinaryForTheme(const QString &metadataPath) const;
     bool backupMetadata(const QString &metadataPath);
     bool restoreMetadata();
     bool writeConfigFileLine(const QString &metadataPath, const QString &configFile);
