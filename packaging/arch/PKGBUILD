@@ -1,0 +1,43 @@
+# Maintainer: Melker Halberd Pereira Alves <melker168@gmail.com>
+pkgname=sddm-variant-manager
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Browse, preview, apply, and install SDDM login theme variants"
+arch=('x86_64')
+url="https://github.com/melker22/sddm-variant-manager"
+license=('GPL-3.0-or-later')
+depends=(
+  'qt6-base'
+  'qt6-declarative'
+  'qt6-multimedia'
+  'qt6-svg'
+  'kirigami'
+  'kcoreaddons'
+  'ki18n'
+  'sddm'
+  'polkit'
+  'git'
+)
+makedepends=(
+  'cmake'
+  'extra-cmake-modules'
+)
+optdepends=(
+  'ffmpeg: high-quality variant thumbnails from video backgrounds'
+)
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('24a8e3aa47d81b60b04aacaaa881ef56dc655b09d768643e9a6d11067b898a4c')
+
+build() {
+  cmake -B build -S "$pkgname-$pkgver" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+
+  install -Dm644 "$pkgname-$pkgver/LICENSE" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
