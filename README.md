@@ -1,6 +1,25 @@
 # SDDM Variant Manager
 
-Graphical tool for KDE/Plasma users to browse, preview, apply, and install SDDM login screen themes — including multi-variant collections such as [ZenMatrix Collection](https://github.com/OminduD/sddm-themes).
+Graphical tool for anyone who uses **SDDM** — whether you run **Hyprland**, **Plasma**, or another desktop — to browse, preview, apply, and install login screen themes without logging out every time. It supports multi-variant collections such as [ZenMatrix Collection](https://github.com/OminduD/sddm-themes).
+
+The interface is built with **Qt 6** and **Kirigami** (KDE-style). You do not need a Plasma session day to day; you only need SDDM and the runtime libraries listed below.
+
+## Why this exists
+
+I use **Hyprland** daily with **SDDM** as my display manager and enjoy customizing the login screen. Browsing SDDM themes was frustrating: the only reliable way to see how a theme really looked was to set it, log out, and test on the actual greeter — over and over.
+
+Themes with **multiple background variants** (collections that ship a `Themes/*.conf` folder) were worse: switching variants meant editing `metadata.desktop` or config files by hand.
+
+KDE's SDDM theme settings (available on my Manjaro install, which also has Plasma) help with thumbnails and picking a theme, but they do not show a faithful fullscreen preview — especially for **animated backgrounds** (video, GIF, or QML animation).
+
+SDDM Variant Manager was built to fix that: browse variants, preview backgrounds, run the real greeter in test mode, and apply changes without logging out every time.
+
+## Who it's for
+
+- **Hyprland, Plasma, or any setup** that uses SDDM
+- Rice / theme collectors who install many login themes
+- Multi-variant theme packs (e.g. ZenMatrix Collection)
+- Video or animated SDDM backgrounds
 
 ## Features
 
@@ -9,17 +28,16 @@ Graphical tool for KDE/Plasma users to browse, preview, apply, and install SDDM 
 - Simple themes: apply as SDDM current theme and open a full greeter preview
 - High-quality static thumbnails for variant galleries (cached JPEG frames via `ffmpeg`)
 - **Install themes from GitHub** — paste an HTTPS or SSH repo URL and install all valid themes found
-- Full SDDM login preview via `sddm-greeter-qt6 --test-mode`
+- Full SDDM login preview via `sddm-greeter` / `sddm-greeter-qt6 --test-mode` (chosen automatically per theme)
 
 ## Requirements
 
 ### Required
 
-- Plasma 6 / Qt 6
+- Qt 6 and KF6 Kirigami (a Plasma install on the system makes these easy to satisfy on Manjaro/Arch)
 - SDDM
-- `sddm-greeter-qt6`
+- `sddm-greeter-qt6` and/or `sddm-greeter` (Qt 5 themes use the latter)
 - `pkexec` (PolicyKit) for writing system theme files or system-wide installs
-- KF6 Kirigami
 
 ### Required for GitHub installation
 
