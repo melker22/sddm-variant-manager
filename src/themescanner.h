@@ -24,6 +24,8 @@ public:
     Q_INVOKABLE QVariantMap themeAt(int index) const;
     Q_INVOKABLE QVariantList variantsForTheme(int themeIndex) const;
     Q_INVOKABLE int themeIndexForId(const QString &themeId) const;
+    Q_INVOKABLE bool pathIsVideo(const QString &path) const;
+    Q_INVOKABLE bool pathIsGif(const QString &path) const;
 
 Q_SIGNALS:
     void themesChanged();
@@ -38,10 +40,12 @@ private:
     static QString readDesktopValue(const QString &filePath, const QString &key);
     static QString readConfValue(const QString &filePath, const QString &key);
     static bool isVideoFile(const QString &path);
+    static bool isGifFile(const QString &path);
     static QString thumbnailCachePathForVideo(const QString &videoPath);
     static bool generateVideoThumbnail(const QString &videoPath, const QString &outputPath);
     static QString resolveThumbnail(const QString &themePath, const QString &backgroundRel);
     static QString resolveSimpleThemePreview(const QString &themePath, const QString &metadataPath);
+    static QString resolveSimpleThemeThumbnail(const QString &previewPath);
     static QVariantMap buildThemeEntry(const QString &themePath, const QString &installScope);
     static QVariantList buildVariantList(const QString &themePath, const QString &metadataPath);
 };

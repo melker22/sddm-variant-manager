@@ -25,6 +25,16 @@ qt_add_resources(sddm-variant-manager "app_qml"
     PREFIX "/"
     FILES
         src/qml/Main.qml
+        src/qml/AppColorScheme.qml
+        src/qml/ThemeListItem.qml
+        src/qml/qmldir
+)
+
+qt_add_resources(sddm-variant-manager "app_icons"
+    PREFIX "/icons/hicolor/scalable/apps"
+    FILES
+        icons/hicolor/scalable/apps/org.github.melker.sddmvariantmanager.svg
+        icons/hicolor/scalable/apps/org.github.melker.sddmvariantmanager-dark.svg
 )
 
 target_link_libraries(sddm-variant-manager PRIVATE
@@ -49,3 +59,4 @@ set_target_properties(sddm-variant-manager PROPERTIES
 install(TARGETS sddm-variant-manager RUNTIME DESTINATION bin)
 install(FILES org.github.melker.sddmvariantmanager.desktop DESTINATION share/applications)
 install(FILES org.github.melker.sddmvariantmanager.appdata.xml DESTINATION share/metainfo)
+install(DIRECTORY icons/hicolor/ DESTINATION share/icons/hicolor)
