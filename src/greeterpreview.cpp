@@ -11,6 +11,27 @@
 #include <QTemporaryFile>
 #include <QTextStream>
 
+namespace {
+
+QString readMetadataValue(const QString &metadataPath, const QString &key)
+{
+    QFile file(metadataPath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    while (!file.atEnd()) {
+        const QString line = QString::fromUtf8(file.readLine()).trimmed();
+        if (line.startsWith(key + QLatin1Char('='))) {
+            return line.mid(key.size() + 1).trimmed();
+        }
+    }
+
+    return {};
+}
+
+} // namespace
+
 GreeterPreview::GreeterPreview(QObject *parent)
     : QObject(parent)
 {
@@ -29,13 +50,17 @@ bool GreeterPreview::running() const
     return m_greeterProcess.state() != QProcess::NotRunning;
 }
 
-QString GreeterPreview::greeterBinary() const
+QString GreeterPreview::greeterBinaryForTheme(const QString &metadataPath) const
 {
     const QString qt6Greeter = QStandardPaths::findExecutable(QStringLiteral("sddm-greeter-qt6"));
-    if (!qt6Greeter.isEmpty()) {
-        return qt6Greeter;
+    const QString qt5Greeter = QStandardPaths::findExecutable(QStringLiteral("sddm-greeter"));
+    const QString qtVersion = readMetadataValue(metadataPath, QStringLiteral("QtVersion"));
+
+    if (qtVersion == QStringLiteral("6")) {
+        return qt6Greeter.isEmpty() ? qt5Greeter : qt6Greeter;
     }
-    return QStandardPaths::findExecutable(QStringLiteral("sddm-greeter"));
+
+    return qt5Greeter.isEmpty() ? qt6Greeter : qt5Greeter;
 }
 
 bool GreeterPreview::backupMetadata(const QString &metadataPath)
@@ -125,9 +150,11 @@ void GreeterPreview::preview(const QString &themePath, const QString &metadataPa
         return;
     }
 
-    const QString greeter = greeterBinary();
+    m_stoppedByUser = false;
+
+    const QString greeter = greeterBinaryForTheme(metadataPath);
     if (greeter.isEmpty()) {
-        Q_EMIT previewFinished(false, QStringLiteral("sddm-greeter-qt6 not found."));
+        Q_EMIT previewFinished(false, QStringLiteral("Neither sddm-greeter nor sddm-greeter-qt6 was found."));
         return;
     }
 
@@ -184,6 +211,7 @@ void GreeterPreview::stopPreview()
         return;
     }
 
+    m_stoppedByUser = true;
     m_greeterProcess.terminate();
     if (!m_greeterProcess.waitForFinished(2000)) {
         m_greeterProcess.kill();
@@ -197,10 +225,12 @@ void GreeterPreview::onGreeterFinished(int exitCode, QProcess::ExitStatus status
 
     const bool hadMetadataChanges = m_modifiedMetadata;
     const QString details = QString::fromUtf8(m_greeterProcess.readAll()).trimmed();
+    const bool userStopped = m_stoppedByUser;
+    m_stoppedByUser = false;
     const bool restored = restoreMetadata();
     Q_EMIT runningChanged();
 
-    const bool closedNormally = exitCode == 0 || exitCode == 15;
+    const bool closedNormally = userStopped || exitCode == 0 || exitCode == 15;
 
     QString message;
     if (!restored) {
