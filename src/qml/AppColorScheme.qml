@@ -36,8 +36,4 @@ QtObject {
     readonly property color outline: isDark ? "#948F99" : "#7A757F"
     readonly property color onSurface: isDark ? "#E6E1E5" : "#1C1B1F"
     readonly property color onSurfaceVariant: isDark ? "#CAC4D0" : "#49454F"
-
-    readonly property string iconSource: isDark
-        ? "qrc:/icons/hicolor/scalable/apps/org.github.melker.sddmvariantmanager-dark.svg"
-        : "qrc:/icons/hicolor/scalable/apps/org.github.melker.sddmvariantmanager.svg"
 }

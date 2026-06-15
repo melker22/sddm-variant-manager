@@ -15,7 +15,8 @@
 #include <QQmlContext>
 #include <QQmlError>
 #include <QQuickStyle>
-#include <QStyleHints>
+#include <QQuickWindow>
+#include <QTimer>
 #include <QDebug>
 #include <QUrl>
 #include <cstdio>
@@ -23,13 +24,47 @@
 
 namespace {
 
-void applyWindowIcon()
+constexpr auto kAppIconName = "org.github.melker.sddmvariantmanager";
+
+QIcon loadBundledIcon()
 {
-    const bool dark = QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
-    const QString iconPath = dark
-        ? QStringLiteral(":/icons/hicolor/scalable/apps/org.github.melker.sddmvariantmanager-dark.svg")
-        : QStringLiteral(":/icons/hicolor/scalable/apps/org.github.melker.sddmvariantmanager.svg");
-    QGuiApplication::setWindowIcon(QIcon(iconPath));
+    static const int kIconSizes[] = {16, 22, 24, 32, 48, 64, 128, 256, 512};
+    QIcon icon;
+    for (int size : kIconSizes) {
+        const QString resourcePath = QStringLiteral(":/icons/hicolor/%1x%2/apps/%3.png")
+                                         .arg(size)
+                                         .arg(size)
+                                         .arg(QString::fromUtf8(kAppIconName));
+        icon.addFile(resourcePath, QSize(size, size));
+    }
+    return icon;
+}
+
+QIcon loadApplicationIcon()
+{
+    const QString iconName = QString::fromUtf8(kAppIconName);
+
+    // Plasma/KWin resolve the titlebar icon from the icon theme (hicolor) via
+    // the .desktop Icon= name — not only from QWindow::setIcon().
+    const QIcon themeIcon = QIcon::fromTheme(iconName);
+    if (!themeIcon.isNull()) {
+        return themeIcon;
+    }
+
+    return loadBundledIcon();
+}
+
+void applyWindowIcon(QWindow *window)
+{
+    const QIcon icon = loadApplicationIcon();
+    if (icon.isNull()) {
+        return;
+    }
+
+    QGuiApplication::setWindowIcon(icon);
+    if (window) {
+        window->setIcon(icon);
+    }
 }
 
 } // namespace
@@ -49,6 +84,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setOrganizationDomain(QStringLiteral("github.melker"));
     QGuiApplication::setApplicationVersion(QStringLiteral("1.0.0"));
     QGuiApplication::setQuitOnLastWindowClosed(true);
+    QGuiApplication::setDesktopFileName(QString::fromUtf8(kAppIconName));
 
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
@@ -61,10 +97,6 @@ int main(int argc, char *argv[])
         if (greeterPreview.running()) {
             greeterPreview.stopPreview();
         }
-    });
-
-    QObject::connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, &app, []() {
-        applyWindowIcon();
     });
 
     QQmlApplicationEngine engine;
@@ -124,7 +156,18 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    applyWindowIcon();
+    auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    applyWindowIcon(window);
+    if (window) {
+        QObject::connect(window, &QQuickWindow::visibleChanged, window, [window]() {
+            if (window->isVisible()) {
+                applyWindowIcon(window);
+            }
+        });
+        QTimer::singleShot(0, window, [window]() {
+            applyWindowIcon(window);
+        });
+    }
 
     return app.exec();
 }
