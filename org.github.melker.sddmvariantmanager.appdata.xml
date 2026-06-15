@@ -4,16 +4,23 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <name>SDDM Variant Manager</name>
-  <summary>Manage and install SDDM login screen themes</summary>
+  <summary>Browse, preview, and install SDDM login themes without logging out</summary>
   <description>
     <p>
-      SDDM Variant Manager lists all installed SDDM themes and helps you apply
-      simple themes or browse multi-variant collections in a Themes/ folder.
+      SDDM Variant Manager is for anyone who uses SDDM — Hyprland, Plasma, or
+      another desktop — and wants to rice the login screen without logging out
+      every time to test a theme.
+    </p>
+    <p>
+      It lists all installed SDDM themes, supports multi-variant collections in
+      a Themes/ folder, installs public themes from GitHub, and runs the real
+      greeter in test mode so video and animated backgrounds preview faithfully
+      (unlike static thumbnails in KDE settings alone).
     </p>
     <p>
       Install public themes from GitHub, preview backgrounds, apply variants,
-      and test the full SDDM greeter with sddm-greeter-qt6 --test-mode. Close
-      the full preview with Alt+Tab and the in-app Close preview button.
+      and test the full SDDM greeter with sddm-greeter or sddm-greeter-qt6.
+      Close the full preview with Alt+Tab and the in-app Close preview button.
     </p>
   </description>
   <requires>
