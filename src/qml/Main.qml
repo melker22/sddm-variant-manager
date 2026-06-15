@@ -160,6 +160,7 @@ Kirigami.ApplicationWindow {
         function onInstallFinished(success, message, installedThemeIds) {
             root.statusMessage = message
             if (success) {
+                installThemeSheet.close()
                 themeScanner.rescan()
                 if (installedThemeIds.length > 0) {
                     const index = themeScanner.themeIndexForId(installedThemeIds[0])
@@ -201,6 +202,12 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    function openInstallThemeSheet() {
+        if (!installThemeSheet.opened) {
+            installThemeSheet.open()
+        }
+    }
+
     onClosing: function(close) {
         if (greeterPreview.running) {
             close.accepted = false
@@ -218,7 +225,7 @@ Kirigami.ApplicationWindow {
             Kirigami.Action {
                 text: "Install theme"
                 icon.name: "download"
-                onTriggered: pageStack.push(installThemePage)
+                onTriggered: root.openInstallThemeSheet()
             },
             Kirigami.Action {
                 text: "Refresh themes"
@@ -565,45 +572,50 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    Component {
-        id: installThemePage
+    Kirigami.OverlaySheet {
+        id: installThemeSheet
 
-        Kirigami.Page {
-            title: "Install SDDM theme"
+        title: "Install SDDM theme"
+        showCloseButton: true
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Kirigami.Units.largeSpacing
-                spacing: Kirigami.Units.largeSpacing
+        ColumnLayout {
+            width: parent ? parent.width : implicitWidth
+            Layout.preferredWidth: Math.min(root.width * 0.45, Kirigami.Units.gridUnit * 50)
+            Layout.preferredHeight: root.height * 0.75
+            spacing: Kirigami.Units.largeSpacing
 
-                Kirigami.Heading {
-                    level: 2
-                    text: "Install from GitHub"
-                }
+            Kirigami.Heading {
+                level: 2
+                text: "Install from GitHub"
+            }
 
-                Label {
-                    Layout.fillWidth: true
-                    wrapMode: Text.Wrap
-                    text: "Paste a public GitHub repository URL (HTTPS or SSH). All valid SDDM themes found in the repository will be installed."
-                }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: "Paste a public GitHub repository URL (HTTPS or SSH). All valid SDDM themes found in the repository will be installed."
+            }
 
-                TextField {
-                    id: repoUrlField
-                    Layout.fillWidth: true
-                    placeholderText: "https://github.com/user/sddm-theme"
-                }
+            TextField {
+                id: repoUrlField
+                Layout.fillWidth: true
+                placeholderText: "https://github.com/user/sddm-theme"
+            }
 
-                CheckBox {
-                    id: systemWideCheck
-                    text: "Install system-wide (/usr/share/sddm/themes/) — requires admin password"
-                }
+            CheckBox {
+                id: systemWideCheck
+                text: "Install system-wide (/usr/share/sddm/themes/) — requires admin password"
+            }
 
-                Label {
-                    Layout.fillWidth: true
-                    wrapMode: Text.Wrap
-                    opacity: 0.85
-                    text: "Default install location: ~/.local/share/sddm/themes/. HTTPS works for public repos. SSH requires your GitHub key to be configured."
-                }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                opacity: 0.85
+                text: "Default install location: ~/.local/share/sddm/themes/. HTTPS works for public repos. SSH requires your GitHub key to be configured."
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
 
                 Button {
                     Layout.fillWidth: true
@@ -613,20 +625,25 @@ Kirigami.ApplicationWindow {
                     onClicked: themeInstaller.installFromUrl(repoUrlField.text.trim(), systemWideCheck.checked)
                 }
 
-                BusyIndicator {
-                    Layout.alignment: Qt.AlignHCenter
-                    running: themeInstaller.installing
+                Button {
+                    text: "Cancel"
+                    onClicked: installThemeSheet.close()
                 }
-
-                Label {
-                    Layout.fillWidth: true
-                    wrapMode: Text.Wrap
-                    visible: themeInstaller.progressMessage.length > 0
-                    text: themeInstaller.progressMessage
-                }
-
-                Item { Layout.fillHeight: true }
             }
+
+            BusyIndicator {
+                Layout.alignment: Qt.AlignHCenter
+                running: themeInstaller.installing
+            }
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                visible: themeInstaller.progressMessage.length > 0
+                text: themeInstaller.progressMessage
+            }
+
+            Item { Layout.fillHeight: true }
         }
     }
 }
