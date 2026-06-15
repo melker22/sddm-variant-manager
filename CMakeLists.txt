@@ -5,7 +5,7 @@ project(sddm-variant-manager VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Multimedia Concurrent)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Multimedia Concurrent Svg)
 find_package(KF6Kirigami 6.0 REQUIRED)
 find_package(KF6KirigamiPlatform 6.0 REQUIRED)
 find_package(KF6CoreAddons 6.0 REQUIRED)
@@ -31,10 +31,18 @@ qt_add_resources(sddm-variant-manager "app_qml"
 )
 
 qt_add_resources(sddm-variant-manager "app_icons"
-    PREFIX "/icons/hicolor/scalable/apps"
+    PREFIX "/"
     FILES
         icons/hicolor/scalable/apps/org.github.melker.sddmvariantmanager.svg
-        icons/hicolor/scalable/apps/org.github.melker.sddmvariantmanager-dark.svg
+        icons/hicolor/16x16/apps/org.github.melker.sddmvariantmanager.png
+        icons/hicolor/22x22/apps/org.github.melker.sddmvariantmanager.png
+        icons/hicolor/24x24/apps/org.github.melker.sddmvariantmanager.png
+        icons/hicolor/32x32/apps/org.github.melker.sddmvariantmanager.png
+        icons/hicolor/48x48/apps/org.github.melker.sddmvariantmanager.png
+        icons/hicolor/64x64/apps/org.github.melker.sddmvariantmanager.png
+        icons/hicolor/128x128/apps/org.github.melker.sddmvariantmanager.png
+        icons/hicolor/256x256/apps/org.github.melker.sddmvariantmanager.png
+        icons/hicolor/512x512/apps/org.github.melker.sddmvariantmanager.png
 )
 
 target_link_libraries(sddm-variant-manager PRIVATE
@@ -43,6 +51,7 @@ target_link_libraries(sddm-variant-manager PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Multimedia
+    Qt6::Svg
     Qt6::Concurrent
     KF6::CoreAddons
     KF6::I18n
