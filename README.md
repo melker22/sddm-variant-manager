@@ -96,11 +96,35 @@ All folders containing `metadata.desktop` in the repository are installed.
 
 ### Close full SDDM preview
 
-The preview covers the entire screen. The app stays open in the background.
+The preview opens the real SDDM greeter in test mode and covers the entire screen. **SDDM Variant Manager stays open in the background** — you need a separate way to dismiss the preview window.
+
+How you do that depends on your desktop environment.
+
+#### On KDE Plasma
+
+Plasma keeps the app reachable through the task switcher:
 
 1. Press **Alt+Tab**
 2. Select **SDDM Variant Manager**
 3. Click **Close preview**
+
+#### On Hyprland
+
+Hyprland gives you more direct control over each window than a traditional desktop like Plasma or GNOME. You do **not** need to Alt+Tab back to the app first — you can close the preview window itself.
+
+**Option A — Close the preview directly (simplest)**
+
+1. Make sure the SDDM preview window is focused (it usually already is, because it is fullscreen).
+2. Press your Hyprland **close window** keybind — the same shortcut you already use to close other applications.
+
+On Hyprland there is normally **no title-bar X button** like on Plasma or GNOME. Closing apps is done with keyboard shortcuts, and the exact binding is yours to configure in `hyprland.conf` (common examples: `Super + Q`, `Alt + F4`, or similar).
+
+**Option B — Leave fullscreen, then close**
+
+1. Press your Hyprland **toggle fullscreen** keybind while the preview is focused.
+2. Press your **close window** keybind.
+
+Either option stops the greeter preview and returns you to SDDM Variant Manager.
 
 Applying variants, system-wide installs, and writing themes in `/usr/share/sddm/themes/` require administrator authentication.
 
