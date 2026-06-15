@@ -6,6 +6,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
 import org.kde.kirigami as Kirigami
+import "."
 
 Kirigami.ApplicationWindow {
     id: root
@@ -15,6 +16,21 @@ Kirigami.ApplicationWindow {
     height: 820
     minimumWidth: 900
     minimumHeight: 600
+
+    AppColorScheme {
+        id: appColors
+    }
+
+    Kirigami.Theme.inherit: false
+    Kirigami.Theme.backgroundColor: appColors.background
+    Kirigami.Theme.alternateBackgroundColor: appColors.surfaceVariant
+    Kirigami.Theme.highlightColor: appColors.primary
+    Kirigami.Theme.highlightedTextColor: appColors.onPrimary
+    Kirigami.Theme.activeTextColor: appColors.onPrimaryContainer
+    Kirigami.Theme.activeBackgroundColor: appColors.primaryContainer
+    Kirigami.Theme.hoverColor: appColors.surfaceVariant
+    Kirigami.Theme.focusColor: appColors.primary
+    Kirigami.Theme.linkColor: appColors.primary
 
     property int selectedThemeIndex: -1
     property int selectedVariantIndex: -1
@@ -47,6 +63,10 @@ Kirigami.ApplicationWindow {
 
     readonly property bool currentThemeHasVariants: currentTheme.hasVariants === true
     readonly property string previewMediaPath: previewPathForSelection()
+    readonly property url previewMediaUrl: previewMediaPath.length > 0 ? ("file://" + previewMediaPath) : ""
+    readonly property bool previewIsVideo: themeScanner.pathIsVideo(previewMediaPath)
+    readonly property bool previewIsGif: themeScanner.pathIsGif(previewMediaPath)
+    readonly property bool previewIsImage: previewMediaPath.length > 0 && !previewIsVideo && !previewIsGif
 
     function previewPathForSelection() {
         variantsRevision
@@ -93,13 +113,12 @@ Kirigami.ApplicationWindow {
 
     function updatePreviewMedia() {
         previewPlayer.stop()
-        const path = previewPathForSelection()
-        if (path.length > 0) {
-            previewPlayer.source = "file://" + path
-            previewPlayer.play()
-        } else {
+        if (!previewIsVideo || previewMediaPath.length === 0) {
             previewPlayer.source = ""
+            return
         }
+        previewPlayer.source = previewMediaUrl
+        previewPlayer.play()
     }
 
     function startFullPreview() {
@@ -178,6 +197,8 @@ Kirigami.ApplicationWindow {
     }
 
     onSelectedVariantIndexChanged: Qt.callLater(updatePreviewMedia)
+
+    onPreviewMediaPathChanged: Qt.callLater(updatePreviewMedia)
 
     component VariantThumbnail: Image {
         property url mediaSource
@@ -267,38 +288,21 @@ Kirigami.ApplicationWindow {
                         clip: true
                         model: themeScanner.themeCount
 
-                        delegate: ItemDelegate {
+                        delegate: ThemeListItem {
                             required property int index
 
-                            width: themeListView.width
-                            highlighted: root.selectedThemeIndex === index
-                            onClicked: root.selectedThemeIndex = index
-
-                            contentItem: Column {
-                                spacing: 2
-                                width: parent.width
-
-                                Label {
-                                    width: parent.width
-                                    text: themeScanner.themeAt(index).name
-                                    font.bold: root.selectedThemeIndex === index
-                                    elide: Text.ElideRight
+                            themeIndex: index
+                            colors: appColors
+                            themeName: themeScanner.themeAt(index).name
+                            themeSubtitle: {
+                                const theme = themeScanner.themeAt(index)
+                                if (theme.hasVariants) {
+                                    return theme.variants.length + " variants · " + theme.installScope
                                 }
-
-                                Label {
-                                    width: parent.width
-                                    text: {
-                                        const theme = themeScanner.themeAt(index)
-                                        if (theme.hasVariants) {
-                                            return theme.variants.length + " variants · " + theme.installScope
-                                        }
-                                        return "Simple theme · " + theme.installScope
-                                    }
-                                    opacity: 0.7
-                                    font.pointSize: Kirigami.Theme.smallFont.pointSize
-                                    elide: Text.ElideRight
-                                }
+                                return "Simple theme · " + theme.installScope
                             }
+                            selected: root.selectedThemeIndex === index
+                            onClicked: root.selectedThemeIndex = index
                         }
                     }
                 }
@@ -385,9 +389,20 @@ Kirigami.ApplicationWindow {
                                 return -1
                             }
 
+                            property bool variantSelected: root.selectedVariantIndex === sourceIndex
+                            property bool variantActive: modelData.isActive
+
                             Kirigami.Card {
                                 anchors.fill: parent
-                                highlighted: root.selectedVariantIndex === sourceIndex || modelData.isActive
+                                highlighted: false
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: Kirigami.Units.gridUnit * 0.5
+                                    color: "transparent"
+                                    border.width: variantSelected || variantActive ? 2 : 0
+                                    border.color: variantActive ? appColors.tertiary : appColors.primary
+                                }
 
                                 ColumnLayout {
                                     anchors.fill: parent
@@ -410,7 +425,7 @@ Kirigami.ApplicationWindow {
                                     Label {
                                         visible: modelData.isActive
                                         text: "Active"
-                                        color: Kirigami.Theme.positiveTextColor
+                                        color: appColors.primary
                                     }
 
                                     Item { Layout.fillHeight: true }
@@ -447,7 +462,7 @@ Kirigami.ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 220
                         radius: Kirigami.Units.smallSpacing
-                        color: Kirigami.Theme.backgroundColor
+                        color: appColors.surfaceVariant
                         clip: true
 
                         AudioOutput {
@@ -461,12 +476,42 @@ Kirigami.ApplicationWindow {
                             audioOutput: previewAudio
                             videoOutput: previewVideoOutput
                             loops: MediaPlayer.Infinite
+
+                            onMediaStatusChanged: function(status) {
+                                if (!root.previewIsVideo) {
+                                    return
+                                }
+                                if (status === MediaPlayer.LoadedMedia || status === MediaPlayer.BufferedMedia) {
+                                    play()
+                                }
+                            }
                         }
 
                         VideoOutput {
                             id: previewVideoOutput
                             anchors.fill: parent
+                            visible: root.previewIsVideo
                             fillMode: VideoOutput.PreserveAspectCrop
+                        }
+
+                        AnimatedImage {
+                            anchors.fill: parent
+                            visible: root.previewIsGif
+                            source: root.previewIsGif ? root.previewMediaUrl : ""
+                            fillMode: Image.PreserveAspectCrop
+                            playing: root.previewIsGif
+                            asynchronous: true
+                            smooth: true
+                        }
+
+                        Image {
+                            anchors.fill: parent
+                            visible: root.previewIsImage
+                            source: root.previewIsImage ? root.previewMediaUrl : ""
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            smooth: true
+                            mipmap: true
                         }
 
                         Kirigami.PlaceholderMessage {
