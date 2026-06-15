@@ -69,11 +69,44 @@ Open the project in **Qt Creator** via `CMakeLists.txt`.
 
 ## Install
 
+### Arch Linux / Manjaro (recommended)
+
+Build the native `.pkg.tar.zst` package:
+
 ```bash
-cmake --install build
+cd packaging/arch
+./build-package.sh
 ```
 
-This installs the binary to `/usr/local/bin` (or your chosen prefix) and adds a `.desktop` entry.
+Install the generated package:
+
+```bash
+sudo pacman -U ./sddm-variant-manager-*.pkg.tar.zst
+```
+
+Or with **pamac**:
+
+```bash
+pamac install ./sddm-variant-manager-*.pkg.tar.zst --no-confirm
+```
+
+This installs to `/usr/bin` and registers the app in the system menu.
+
+To remove later:
+
+```bash
+sudo pacman -R sddm-variant-manager
+```
+
+### From source (manual)
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+cmake --build build
+sudo cmake --install build
+```
+
+This installs the binary to `/usr/bin` and adds a `.desktop` entry.
 
 ## Usage
 
