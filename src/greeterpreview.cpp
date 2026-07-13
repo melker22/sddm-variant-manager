@@ -152,18 +152,22 @@ bool GreeterPreview::backupMetadata(const QString &metadataPath)
 
 bool GreeterPreview::restoreMetadata()
 {
-    if (!m_modifiedMetadata || m_originalMetadataPath.isEmpty() || m_backupMetadataPath.isEmpty()) {
-        return true;
-    }
-
-    // Temp-copy previews never touch the original theme directory.
+    // Temp-copy previews never touch the original theme directory and normally
+    // have no metadata backup — but still drop any leftover backup from a
+    // previous failed non-temp restore before resetting state.
     if (m_usingTempThemeCopy) {
-        QFile::remove(m_backupMetadataPath);
+        if (!m_backupMetadataPath.isEmpty()) {
+            QFile::remove(m_backupMetadataPath);
+        }
         m_modifiedMetadata = false;
         m_originalMetadataPath.clear();
         m_backupMetadataPath.clear();
         m_usingTempThemeCopy = false;
         m_tempThemeDir.reset();
+        return true;
+    }
+
+    if (!m_modifiedMetadata || m_originalMetadataPath.isEmpty() || m_backupMetadataPath.isEmpty()) {
         return true;
     }
 
@@ -266,6 +270,13 @@ void GreeterPreview::preview(const QString &themePath, const QString &metadataPa
     m_stoppedByUser = false;
     m_usingTempThemeCopy = false;
     m_tempThemeDir.reset();
+    // Drop leftovers from a previous failed restore before starting a new preview.
+    if (!m_backupMetadataPath.isEmpty()) {
+        QFile::remove(m_backupMetadataPath);
+        m_backupMetadataPath.clear();
+    }
+    m_modifiedMetadata = false;
+    m_originalMetadataPath.clear();
 
     const QString greeter = greeterBinaryForTheme(metadataPath);
     if (greeter.isEmpty()) {
