@@ -31,10 +31,12 @@
     <control>keyboard</control>
   </recommends>
   <launchable type="desktop-id">org.github.melker.sddmvariantmanager.desktop</launchable>
-  <url type="homepage">https://github.com/melker/sddm-variant-manager</url>
+  <url type="homepage">https://github.com/melker22/sddm-variant-manager</url>
   <developer_name>Melker Halberd Pereira Alves</developer_name>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.0.1" date="2026-07-12"/>
+    <release version="2.0.0" date="2026-07-12"/>
     <release version="1.0.0" date="2026-06-13"/>
   </releases>
 </component>
