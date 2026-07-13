@@ -17,7 +17,7 @@ QtObject {
         return Platform.Theme.textColor.hslLightness > 0.5
     }
 
-    // UxPilot palette — property names must not use on+Capital (signal handlers).
+    // App palette — property names must not use on+Capital (signal handlers).
     readonly property color primary: isDark ? "#B9A0F7" : "#8B67F2"
     readonly property color primaryFg: "#FFFFFF"
     readonly property color primaryContainer: isDark ? "#3D2F66" : "#EDE8FD"
