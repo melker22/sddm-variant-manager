@@ -57,7 +57,7 @@ Kirigami.ApplicationWindow {
     property int installTabIndex: 0
     property string localInstallPath: ""
     readonly property string closePreviewHelp: "To close the full-screen preview: press Alt+Tab, select SDDM Variant Manager, then click Close preview."
-    readonly property string appVersion: "2.0.1"
+    readonly property string appVersion: "2.0.2"
 
     readonly property var currentTheme: {
         variantsRevision
