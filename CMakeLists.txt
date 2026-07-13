@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(sddm-variant-manager VERSION 1.0.0 LANGUAGES CXX)
+project(sddm-variant-manager VERSION 2.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,15 +10,18 @@ find_package(KF6Kirigami 6.0 REQUIRED)
 find_package(KF6KirigamiPlatform 6.0 REQUIRED)
 find_package(KF6CoreAddons 6.0 REQUIRED)
 find_package(KF6I18n 6.0 REQUIRED)
+find_package(KF6Archive 6.0 REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
 qt_add_executable(sddm-variant-manager
     src/main.cpp
+    src/platform.cpp
     src/themescanner.cpp
     src/themeapplier.cpp
     src/greeterpreview.cpp
     src/themeinstaller.cpp
+    src/greetercapabilities.cpp
 )
 
 qt_add_resources(sddm-variant-manager "app_qml"
@@ -30,9 +33,17 @@ qt_add_resources(sddm-variant-manager "app_qml"
         src/qml/qmldir
 )
 
+qt_add_resources(sddm-variant-manager "app_fonts"
+    PREFIX "/"
+    FILES
+        fonts/Sora-Regular.ttf
+        fonts/Manrope-Regular.ttf
+)
+
 qt_add_resources(sddm-variant-manager "app_icons"
     PREFIX "/"
     FILES
+        icons/app-logo.png
         icons/hicolor/scalable/apps/org.github.melker.sddmvariantmanager.svg
         icons/hicolor/16x16/apps/org.github.melker.sddmvariantmanager.png
         icons/hicolor/22x22/apps/org.github.melker.sddmvariantmanager.png
@@ -57,6 +68,7 @@ target_link_libraries(sddm-variant-manager PRIVATE
     KF6::I18n
     KF6::Kirigami
     KF6::KirigamiPlatform
+    KF6::Archive
 )
 
 # Kirigami QML plugins are loaded at runtime from the system QML path.

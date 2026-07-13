@@ -6,13 +6,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$(dirname "$0")"
 
+PKGVER="$(sed -n 's/^pkgver=//p' PKGBUILD | head -1)"
+TARBALL="sddm-variant-manager-${PKGVER}.tar.gz"
+
 if ! command -v makepkg >/dev/null; then
   echo "makepkg not found. Install base-devel: pamac install base-devel --no-confirm"
   exit 1
 fi
 
 echo "Creating source tarball from $ROOT ..."
-rm -f "sddm-variant-manager-1.0.0.tar.gz"
+rm -f "$TARBALL"
 tar --exclude='.git' \
     --exclude='build' \
     --exclude='.qtcreator' \
@@ -20,12 +23,12 @@ tar --exclude='.git' \
     --exclude='packaging/arch/pkg' \
     --exclude='packaging/arch/src' \
     --exclude='packaging/arch/*.pkg.tar.zst' \
-    -czf "sddm-variant-manager-1.0.0.tar.gz" \
-    --transform 's,^,sddm-variant-manager-1.0.0/,' \
+    -czf "$TARBALL" \
+    --transform "s,^,sddm-variant-manager-${PKGVER}/," \
     -C "$ROOT" .
 
 echo "Updating sha256sum in PKGBUILD ..."
-SUM=$(sha256sum "sddm-variant-manager-1.0.0.tar.gz" | awk '{print $1}')
+SUM=$(sha256sum "$TARBALL" | awk '{print $1}')
 sed -i "s/^sha256sums=('.*')/sha256sums=('${SUM}')/" PKGBUILD
 
 makepkg --syncdeps --cleanbuild --noconfirm "$@"
