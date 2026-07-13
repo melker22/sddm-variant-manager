@@ -1,5 +1,7 @@
 /build/
 /build-debug/
+/result
 /.qt/
+/.qtcreator/
 CMakeLists.txt.user
 *.autosave

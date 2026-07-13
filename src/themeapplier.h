@@ -13,8 +13,10 @@ public:
     explicit ThemeApplier(QObject *parent = nullptr);
 
     Q_INVOKABLE bool applyVariant(const QString &metadataPath, const QString &configFile);
-    Q_INVOKABLE bool applySimpleTheme(const QString &themeId, bool activateInSddm);
-    Q_INVOKABLE bool setSddmCurrentTheme(const QString &themeId, bool enabled);
+    Q_INVOKABLE bool applySimpleTheme(const QString &themeId, bool activateInSddm,
+                                      const QString &themePath = QString());
+    Q_INVOKABLE bool setSddmCurrentTheme(const QString &themeId, bool enabled,
+                                         const QString &themePath = QString());
 
 Q_SIGNALS:
     void applyFinished(bool success, const QString &message);
@@ -23,4 +25,5 @@ Q_SIGNALS:
 private:
     bool runPkexecCommand(const QStringList &arguments, int timeoutMs = 120000);
     bool writeConfigFileLine(const QString &metadataPath, const QString &configFile);
+    bool writeNixosSddmDropIn(const QString &themeId, const QString &themePath);
 };

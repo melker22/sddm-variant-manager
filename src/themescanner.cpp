@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "themescanner.h"
+#include "platform.h"
 
 #include <QDir>
 #include <QFile>
@@ -27,11 +28,14 @@ void ThemeScanner::rescan()
 {
     m_themes.clear();
 
-    scanBaseDirectory(QStringLiteral("/usr/share/sddm/themes"));
+    const QStringList systemDirs = Platform::systemThemeScanDirs();
+    for (const QString &systemDir : systemDirs) {
+        scanBaseDirectory(systemDir);
+    }
 
     const QString localBase = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
         + QStringLiteral("/sddm/themes");
-    if (localBase != QStringLiteral("/usr/share/sddm/themes")) {
+    if (!systemDirs.contains(localBase)) {
         scanBaseDirectory(localBase);
     }
 
@@ -80,9 +84,12 @@ void ThemeScanner::scanBaseDirectory(const QString &basePath)
         return;
     }
 
-    const QString installScope = basePath.startsWith(QStringLiteral("/usr/share/"))
-        ? QStringLiteral("system")
-        : QStringLiteral("user");
+    const QString installScope =
+        (basePath.startsWith(QStringLiteral("/usr/share/"))
+         || basePath.startsWith(QStringLiteral("/run/current-system/"))
+         || basePath.startsWith(QStringLiteral("/var/lib/sddm/")))
+            ? QStringLiteral("system")
+            : QStringLiteral("user");
 
     const QStringList themeDirs = baseDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     for (const QString &dirName : themeDirs) {
@@ -477,8 +484,31 @@ QVariantMap ThemeScanner::buildThemeEntry(const QString &themePath, const QStrin
     theme.insert(QStringLiteral("path"), themePath);
     theme.insert(QStringLiteral("metadataPath"), metadataPath);
     theme.insert(QStringLiteral("installScope"), installScope);
+    theme.insert(QStringLiteral("readOnly"), Platform::pathIsReadOnly(themePath));
     theme.insert(QStringLiteral("hasVariants"), hasVariants);
     theme.insert(QStringLiteral("variants"), variants);
+
+    // Detect themes that need QtMultimedia in the *system* greeter (video backgrounds).
+    bool requiresMultimedia = QFile::exists(themePath + QStringLiteral("/BackgroundVideo.qml"));
+    if (!requiresMultimedia) {
+        const QString confPath = themePath + QStringLiteral("/theme.conf");
+        const QString type = readConfValue(confPath, QStringLiteral("type")).toLower();
+        const QString background = readConfValue(confPath, QStringLiteral("background")).toLower();
+        requiresMultimedia = type == QLatin1String("video") || isVideoFile(background)
+            || isVideoFile(themePath + QLatin1Char('/') + background);
+    }
+    if (!requiresMultimedia && !hasVariants) {
+        requiresMultimedia = isVideoFile(theme.value(QStringLiteral("previewPath")).toString());
+    }
+    if (!requiresMultimedia && hasVariants) {
+        for (const QVariant &variantVar : variants) {
+            if (isVideoFile(variantVar.toMap().value(QStringLiteral("backgroundPath")).toString())) {
+                requiresMultimedia = true;
+                break;
+            }
+        }
+    }
+    theme.insert(QStringLiteral("requiresMultimedia"), requiresMultimedia);
 
     if (hasVariants) {
         theme.insert(QStringLiteral("activeConfigFile"),

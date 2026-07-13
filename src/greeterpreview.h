@@ -5,6 +5,8 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QTemporaryDir>
+#include <memory>
 
 class GreeterPreview : public QObject
 {
@@ -30,6 +32,8 @@ private:
     QString m_originalMetadataPath;
     bool m_modifiedMetadata = false;
     bool m_stoppedByUser = false;
+    bool m_usingTempThemeCopy = false;
+    std::unique_ptr<QTemporaryDir> m_tempThemeDir;
 
     QString greeterBinaryForTheme(const QString &metadataPath) const;
     bool backupMetadata(const QString &metadataPath);

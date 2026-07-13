@@ -2,12 +2,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "greeterpreview.h"
+#include "platform.h"
 
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
+#include <QFileInfo>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QTextStream>
 
@@ -28,6 +32,77 @@ QString readMetadataValue(const QString &metadataPath, const QString &key)
     }
 
     return {};
+}
+
+bool copyDirectoryRecursive(const QString &source, const QString &destination)
+{
+    QDir sourceDir(source);
+    if (!sourceDir.exists()) {
+        return false;
+    }
+
+    QDir().mkpath(destination);
+
+    QDirIterator iterator(source, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+        const QString sourcePath = iterator.next();
+        const QString relativePath = sourceDir.relativeFilePath(sourcePath);
+        const QString destinationPath = destination + QDir::separator() + relativePath;
+        const QFileInfo info(sourcePath);
+
+        if (info.isDir()) {
+            if (!QDir().mkpath(destinationPath)) {
+                return false;
+            }
+            continue;
+        }
+
+        QDir().mkpath(QFileInfo(destinationPath).absolutePath());
+        if (QFile::exists(destinationPath)) {
+            QFile::remove(destinationPath);
+        }
+        if (!QFile::copy(sourcePath, destinationPath)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool writeConfigFileLocal(const QString &metadataPath, const QString &configFile)
+{
+    QFile input(metadataPath);
+    if (!input.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return false;
+    }
+
+    QStringList lines;
+    QTextStream in(&input);
+    bool replaced = false;
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        if (line.startsWith(QStringLiteral("ConfigFile="))) {
+            line = QStringLiteral("ConfigFile=") + configFile;
+            replaced = true;
+        }
+        lines.append(line);
+    }
+    input.close();
+
+    if (!replaced) {
+        lines.append(QStringLiteral("ConfigFile=") + configFile);
+    }
+
+    QFile output(metadataPath);
+    if (!output.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        return false;
+    }
+
+    QTextStream out(&output);
+    for (const QString &line : lines) {
+        out << line << '\n';
+    }
+    return true;
 }
 
 } // namespace
@@ -81,9 +156,38 @@ bool GreeterPreview::restoreMetadata()
         return true;
     }
 
+    // Temp-copy previews never touch the original theme directory.
+    if (m_usingTempThemeCopy) {
+        QFile::remove(m_backupMetadataPath);
+        m_modifiedMetadata = false;
+        m_originalMetadataPath.clear();
+        m_backupMetadataPath.clear();
+        m_usingTempThemeCopy = false;
+        m_tempThemeDir.reset();
+        return true;
+    }
+
+    if (QFileInfo(m_originalMetadataPath).isWritable()) {
+        if (QFile::exists(m_originalMetadataPath)) {
+            QFile::remove(m_originalMetadataPath);
+        }
+        const bool ok = QFile::copy(m_backupMetadataPath, m_originalMetadataPath);
+        if (ok) {
+            QFile::remove(m_backupMetadataPath);
+            m_modifiedMetadata = false;
+            m_originalMetadataPath.clear();
+            m_backupMetadataPath.clear();
+        }
+        return ok;
+    }
+
+    const QString cp = Platform::absoluteExecutable(QStringLiteral("cp"));
+    if (cp.isEmpty()) {
+        return false;
+    }
+
     QProcess process;
-    process.start(QStringLiteral("pkexec"),
-                  {QStringLiteral("cp"), m_backupMetadataPath, m_originalMetadataPath});
+    process.start(QStringLiteral("pkexec"), {cp, m_backupMetadataPath, m_originalMetadataPath});
     if (!process.waitForStarted() || !process.waitForFinished(120000)) {
         return false;
     }
@@ -100,6 +204,10 @@ bool GreeterPreview::restoreMetadata()
 
 bool GreeterPreview::writeConfigFileLine(const QString &metadataPath, const QString &configFile)
 {
+    if (QFileInfo(metadataPath).isWritable()) {
+        return writeConfigFileLocal(metadataPath, configFile);
+    }
+
     QFile input(metadataPath);
     if (!input.open(QIODevice::ReadOnly | QIODevice::Text)) {
         return false;
@@ -135,8 +243,13 @@ bool GreeterPreview::writeConfigFileLine(const QString &metadataPath, const QStr
     out.flush();
     tempFile.close();
 
+    const QString cp = Platform::absoluteExecutable(QStringLiteral("cp"));
+    if (cp.isEmpty()) {
+        return false;
+    }
+
     QProcess process;
-    process.start(QStringLiteral("pkexec"), {QStringLiteral("cp"), tempFile.fileName(), metadataPath});
+    process.start(QStringLiteral("pkexec"), {cp, tempFile.fileName(), metadataPath});
     if (!process.waitForStarted() || !process.waitForFinished(120000)) {
         return false;
     }
@@ -151,6 +264,8 @@ void GreeterPreview::preview(const QString &themePath, const QString &metadataPa
     }
 
     m_stoppedByUser = false;
+    m_usingTempThemeCopy = false;
+    m_tempThemeDir.reset();
 
     const QString greeter = greeterBinaryForTheme(metadataPath);
     if (greeter.isEmpty()) {
@@ -164,31 +279,83 @@ void GreeterPreview::preview(const QString &themePath, const QString &metadataPa
     }
 
     const bool modifyMetadata = !configFile.isEmpty();
+    QString previewThemePath = themePath;
+    QString previewMetadataPath = metadataPath;
 
     if (modifyMetadata) {
-        if (!backupMetadata(metadataPath)) {
-            Q_EMIT previewFinished(false, QStringLiteral("Could not back up metadata.desktop."));
-            return;
-        }
+        // Read-only themes (Nix store): copy to a temp dir and edit there — no pkexec.
+        if (Platform::pathIsReadOnly(themePath) || !QFileInfo(metadataPath).isWritable()) {
+            m_tempThemeDir = std::make_unique<QTemporaryDir>();
+            if (!m_tempThemeDir->isValid()) {
+                Q_EMIT previewFinished(false, QStringLiteral("Could not create a temporary theme copy."));
+                return;
+            }
 
-        if (!writeConfigFileLine(metadataPath, configFile)) {
-            restoreMetadata();
-            Q_EMIT previewFinished(false, QStringLiteral("Could not set preview variant (authentication may have been cancelled)."));
-            return;
-        }
+            const QString tempThemePath =
+                m_tempThemeDir->path() + QDir::separator() + QFileInfo(themePath).fileName();
+            if (!copyDirectoryRecursive(themePath, tempThemePath)) {
+                m_tempThemeDir.reset();
+                Q_EMIT previewFinished(false, QStringLiteral("Could not copy theme for preview."));
+                return;
+            }
 
-        m_modifiedMetadata = true;
+            previewThemePath = tempThemePath;
+            previewMetadataPath = tempThemePath + QStringLiteral("/metadata.desktop");
+            if (!writeConfigFileLocal(previewMetadataPath, configFile)) {
+                m_tempThemeDir.reset();
+                Q_EMIT previewFinished(false, QStringLiteral("Could not set preview variant in temporary copy."));
+                return;
+            }
+
+            m_usingTempThemeCopy = true;
+            m_modifiedMetadata = true;
+            m_originalMetadataPath = previewMetadataPath;
+            m_backupMetadataPath.clear();
+        } else {
+            if (!backupMetadata(metadataPath)) {
+                Q_EMIT previewFinished(false, QStringLiteral("Could not back up metadata.desktop."));
+                return;
+            }
+
+            if (!writeConfigFileLine(metadataPath, configFile)) {
+                restoreMetadata();
+                Q_EMIT previewFinished(false, QStringLiteral("Could not set preview variant (authentication may have been cancelled)."));
+                return;
+            }
+
+            m_modifiedMetadata = true;
+        }
     } else {
         m_modifiedMetadata = false;
         m_originalMetadataPath.clear();
         m_backupMetadataPath.clear();
     }
 
-    m_greeterProcess.setWorkingDirectory(themePath);
+    m_greeterProcess.setWorkingDirectory(previewThemePath);
+
+    // The greeter needs Plasma/Breeze QML modules. When launched from nix-shell
+    // or Qt Creator, QML2_IMPORT_PATH is often too narrow and hides the system
+    // modules that SDDM themes (e.g. Breeze) import.
+    QProcessEnvironment greeterEnv = QProcessEnvironment::systemEnvironment();
+    const QString systemQml = Platform::systemQmlImportDir();
+    if (!systemQml.isEmpty()) {
+        const auto prependImportPath = [&greeterEnv, &systemQml](const QString &key) {
+            const QString existing = greeterEnv.value(key);
+            if (existing.isEmpty()) {
+                greeterEnv.insert(key, systemQml);
+            } else if (!existing.split(QLatin1Char(':')).contains(systemQml)) {
+                greeterEnv.insert(key, systemQml + QLatin1Char(':') + existing);
+            }
+        };
+        prependImportPath(QStringLiteral("QML2_IMPORT_PATH"));
+        prependImportPath(QStringLiteral("QML_IMPORT_PATH"));
+    }
+    m_greeterProcess.setProcessEnvironment(greeterEnv);
+
     m_greeterProcess.start(greeter,
                            {QStringLiteral("--test-mode"),
                             QStringLiteral("--theme"),
-                            themePath});
+                            previewThemePath});
 
     if (!m_greeterProcess.waitForStarted(5000)) {
         const QString details = QString::fromUtf8(m_greeterProcess.readAll()).trimmed();
@@ -224,6 +391,7 @@ void GreeterPreview::onGreeterFinished(int exitCode, QProcess::ExitStatus status
     Q_UNUSED(status)
 
     const bool hadMetadataChanges = m_modifiedMetadata;
+    const bool usedTempCopy = m_usingTempThemeCopy;
     const QString details = QString::fromUtf8(m_greeterProcess.readAll()).trimmed();
     const bool userStopped = m_stoppedByUser;
     m_stoppedByUser = false;
@@ -236,8 +404,9 @@ void GreeterPreview::onGreeterFinished(int exitCode, QProcess::ExitStatus status
     if (!restored) {
         message = QStringLiteral("Preview closed, but metadata restore failed.");
     } else if (closedNormally) {
-        message = hadMetadataChanges ? QStringLiteral("Preview closed. Theme metadata restored.")
-                                     : QStringLiteral("Preview closed.");
+        message = hadMetadataChanges && !usedTempCopy
+                      ? QStringLiteral("Preview closed. Theme metadata restored.")
+                      : QStringLiteral("Preview closed.");
     } else if (!details.isEmpty()) {
         message = QStringLiteral("Preview failed: %1").arg(details);
     } else {

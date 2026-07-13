@@ -21,6 +21,7 @@ public:
     bool gitAvailable() const;
 
     Q_INVOKABLE bool installFromUrl(const QString &url, bool systemWide);
+    Q_INVOKABLE bool installFromLocalPath(const QString &path, bool systemWide);
 
 Q_SIGNALS:
     void installingChanged();
@@ -33,10 +34,14 @@ private:
 
     void setInstalling(bool installing);
     void setProgressMessage(const QString &message);
+    void beginInstallJob();
 
     static bool normalizeGitHubUrl(const QString &input, QString *normalizedUrl, QString *error);
     static QStringList findThemeRoots(const QString &rootPath);
     static QString uniqueInstallPath(const QString &baseDir, const QString &folderName);
     static bool copyDirectory(const QString &source, const QString &destination);
     static bool installDirectory(const QString &source, const QString &destination, bool systemWide);
+    static bool prepareInstallBase(const QString &installBase, bool systemWide, QString *error);
+    static bool extractArchive(const QString &archivePath, const QString &destinationDir, QString *error);
+    static bool isSupportedArchive(const QString &filePath);
 };

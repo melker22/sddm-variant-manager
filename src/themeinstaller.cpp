@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "themeinstaller.h"
+#include "platform.h"
+
+#include <KTar>
+#include <KZip>
 
 #include <QDir>
 #include <QDirIterator>
@@ -14,6 +18,8 @@
 #include <QTemporaryDir>
 #include <QtConcurrent>
 #include <QUrl>
+
+#include <memory>
 
 ThemeInstaller::ThemeInstaller(QObject *parent)
     : QObject(parent)
@@ -51,6 +57,12 @@ void ThemeInstaller::setProgressMessage(const QString &message)
     }
     m_progressMessage = message;
     Q_EMIT progressMessageChanged();
+}
+
+void ThemeInstaller::beginInstallJob()
+{
+    setInstalling(true);
+    setProgressMessage(QStringLiteral("Starting installation…"));
 }
 
 bool ThemeInstaller::normalizeGitHubUrl(const QString &input, QString *normalizedUrl, QString *error)
@@ -175,13 +187,113 @@ bool ThemeInstaller::installDirectory(const QString &source, const QString &dest
         return copyDirectory(source, destination);
     }
 
+    const QString cp = Platform::absoluteExecutable(QStringLiteral("cp"));
+    const QString mkdir = Platform::absoluteExecutable(QStringLiteral("mkdir"));
+    if (cp.isEmpty() || mkdir.isEmpty()) {
+        return false;
+    }
+
+    const QString parentDir = QFileInfo(destination).absolutePath();
+    QProcess mkdirProcess;
+    mkdirProcess.start(QStringLiteral("pkexec"),
+                       {mkdir, QStringLiteral("-p"), parentDir});
+    if (!mkdirProcess.waitForStarted() || !mkdirProcess.waitForFinished(120000)
+        || mkdirProcess.exitCode() != 0) {
+        return false;
+    }
+
     QProcess process;
     process.start(QStringLiteral("pkexec"),
-                  {QStringLiteral("cp"), QStringLiteral("-r"), source, destination});
+                  {cp, QStringLiteral("-r"), source, destination});
     if (!process.waitForStarted() || !process.waitForFinished(120000)) {
         return false;
     }
     return process.exitCode() == 0;
+}
+
+bool ThemeInstaller::prepareInstallBase(const QString &installBase, bool systemWide, QString *error)
+{
+    if (!systemWide) {
+        if (!QDir().mkpath(installBase)) {
+            *error = QStringLiteral("Could not create %1.").arg(installBase);
+            return false;
+        }
+        return true;
+    }
+
+    if (Platform::isNixOS()) {
+        const QString mkdir = Platform::absoluteExecutable(QStringLiteral("mkdir"));
+        if (mkdir.isEmpty()) {
+            *error = QStringLiteral("mkdir was not found; cannot create %1.").arg(installBase);
+            return false;
+        }
+        QProcess mkdirProcess;
+        mkdirProcess.start(QStringLiteral("pkexec"), {mkdir, QStringLiteral("-p"), installBase});
+        if (!mkdirProcess.waitForStarted() || !mkdirProcess.waitForFinished(120000)
+            || mkdirProcess.exitCode() != 0) {
+            *error = QStringLiteral("Failed to create %1 (authentication may have been cancelled).")
+                         .arg(installBase);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool ThemeInstaller::isSupportedArchive(const QString &filePath)
+{
+    const QString name = QFileInfo(filePath).fileName().toLower();
+    return name.endsWith(QStringLiteral(".zip"))
+        || name.endsWith(QStringLiteral(".tar"))
+        || name.endsWith(QStringLiteral(".tar.gz"))
+        || name.endsWith(QStringLiteral(".tgz"))
+        || name.endsWith(QStringLiteral(".tar.xz"))
+        || name.endsWith(QStringLiteral(".txz"))
+        || name.endsWith(QStringLiteral(".tar.bz2"))
+        || name.endsWith(QStringLiteral(".tbz2"))
+        || name.endsWith(QStringLiteral(".tar.zst"))
+        || name.endsWith(QStringLiteral(".tzst"));
+}
+
+bool ThemeInstaller::extractArchive(const QString &archivePath, const QString &destinationDir, QString *error)
+{
+    const QString name = QFileInfo(archivePath).fileName().toLower();
+    std::unique_ptr<KArchive> archive;
+
+    if (name.endsWith(QStringLiteral(".zip"))) {
+        archive = std::make_unique<KZip>(archivePath);
+    } else if (name.endsWith(QStringLiteral(".tar"))
+               || name.endsWith(QStringLiteral(".tar.gz"))
+               || name.endsWith(QStringLiteral(".tgz"))
+               || name.endsWith(QStringLiteral(".tar.xz"))
+               || name.endsWith(QStringLiteral(".txz"))
+               || name.endsWith(QStringLiteral(".tar.bz2"))
+               || name.endsWith(QStringLiteral(".tbz2"))
+               || name.endsWith(QStringLiteral(".tar.zst"))
+               || name.endsWith(QStringLiteral(".tzst"))) {
+        archive = std::make_unique<KTar>(archivePath);
+    } else {
+        *error = QStringLiteral("Unsupported archive format. Use zip, tar, tar.gz, tar.xz, tar.bz2, or tar.zst.");
+        return false;
+    }
+
+    if (!archive->open(QIODevice::ReadOnly)) {
+        *error = QStringLiteral("Could not open archive: %1").arg(archivePath);
+        return false;
+    }
+
+    const KArchiveDirectory *root = archive->directory();
+    if (!root) {
+        *error = QStringLiteral("Archive is empty or unreadable.");
+        return false;
+    }
+
+    if (!root->copyTo(destinationDir, true)) {
+        *error = QStringLiteral("Failed to extract archive contents.");
+        return false;
+    }
+
+    return true;
 }
 
 bool ThemeInstaller::installFromUrl(const QString &url, bool systemWide)
@@ -192,7 +304,9 @@ bool ThemeInstaller::installFromUrl(const QString &url, bool systemWide)
     }
 
     if (!gitAvailable()) {
-        Q_EMIT installFinished(false, QStringLiteral("git is not installed. Install it with: pamac install git"), {});
+        Q_EMIT installFinished(false,
+                               QStringLiteral("git is not installed. Install it with your package manager (e.g. nix profile add nixpkgs#git, pacman -S git)."),
+                               {});
         return false;
     }
 
@@ -203,8 +317,7 @@ bool ThemeInstaller::installFromUrl(const QString &url, bool systemWide)
         return false;
     }
 
-    setInstalling(true);
-    setProgressMessage(QStringLiteral("Starting installation…"));
+    beginInstallJob();
 
     (void)QtConcurrent::run([this, normalizedUrl, systemWide]() {
         QStringList installedThemeIds;
@@ -239,6 +352,10 @@ bool ThemeInstaller::installFromUrl(const QString &url, bool systemWide)
             return;
         }
 
+        QMetaObject::invokeMethod(this, [this]() {
+            setProgressMessage(QStringLiteral("Looking for SDDM themes…"));
+        }, Qt::QueuedConnection);
+
         const QStringList themeRoots = findThemeRoots(tempDir.path());
         if (themeRoots.isEmpty()) {
             finish(false, QStringLiteral("No SDDM themes found in the repository (metadata.desktop missing)."));
@@ -247,11 +364,201 @@ bool ThemeInstaller::installFromUrl(const QString &url, bool systemWide)
 
         const QString userBase = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
             + QStringLiteral("/sddm/themes");
-        const QString systemBase = QStringLiteral("/usr/share/sddm/themes");
+        const QString systemBase = Platform::writableSystemThemeDir();
         const QString installBase = systemWide ? systemBase : userBase;
 
-        if (!systemWide) {
-            QDir().mkpath(installBase);
+        QString prepareError;
+        if (!prepareInstallBase(installBase, systemWide, &prepareError)) {
+            finish(false, prepareError);
+            return;
+        }
+
+        for (const QString &themeRoot : themeRoots) {
+            const QString folderName = QFileInfo(themeRoot).fileName();
+            const QString destination = uniqueInstallPath(installBase, folderName);
+            if (destination.isEmpty()) {
+                finish(false, QStringLiteral("Could not choose a destination folder for %1.").arg(folderName));
+                return;
+            }
+
+            QMetaObject::invokeMethod(this, [this, folderName]() {
+                setProgressMessage(QStringLiteral("Installing %1…").arg(folderName));
+            }, Qt::QueuedConnection);
+
+            if (!installDirectory(themeRoot, destination, systemWide)) {
+                finish(false,
+                       systemWide
+                           ? QStringLiteral("Failed to install %1 system-wide (authentication may have been cancelled).")
+                                 .arg(folderName)
+                           : QStringLiteral("Failed to install %1.").arg(folderName));
+                return;
+            }
+
+            installedThemeIds.append(QFileInfo(destination).fileName());
+        }
+
+        finish(true,
+               installedThemeIds.size() == 1
+                   ? QStringLiteral("Installed 1 theme: %1").arg(installedThemeIds.constFirst())
+                   : QStringLiteral("Installed %1 themes.").arg(installedThemeIds.size()));
+    });
+
+    return true;
+}
+
+bool ThemeInstaller::installFromLocalPath(const QString &path, bool systemWide)
+{
+    if (m_installing) {
+        Q_EMIT installFinished(false, QStringLiteral("An installation is already in progress."), {});
+        return false;
+    }
+
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        Q_EMIT installFinished(false, QStringLiteral("Choose a theme folder or archive file."), {});
+        return false;
+    }
+
+    // Support file:// URLs from drag-and-drop / dialogs.
+    QString localPath = trimmed;
+    const QUrl url(trimmed);
+    if (url.isLocalFile()) {
+        localPath = url.toLocalFile();
+    }
+
+    const QFileInfo info(localPath);
+    if (!info.exists()) {
+        Q_EMIT installFinished(false, QStringLiteral("Path does not exist: %1").arg(localPath), {});
+        return false;
+    }
+
+    beginInstallJob();
+
+    if (info.isDir()) {
+        (void)QtConcurrent::run([this, localPath, systemWide]() {
+            QStringList installedThemeIds;
+
+            auto finish = [this, &installedThemeIds](bool success, const QString &message) {
+                QMetaObject::invokeMethod(this, [this, success, message, installedThemeIds]() {
+                    setInstalling(false);
+                    setProgressMessage(success ? QStringLiteral("Installation finished.") : message);
+                    Q_EMIT installFinished(success, message, installedThemeIds);
+                }, Qt::QueuedConnection);
+            };
+
+            QMetaObject::invokeMethod(this, [this]() {
+                setProgressMessage(QStringLiteral("Looking for SDDM themes…"));
+            }, Qt::QueuedConnection);
+
+            const QStringList themeRoots = findThemeRoots(localPath);
+            if (themeRoots.isEmpty()) {
+                finish(false, QStringLiteral("No SDDM themes found in the folder (metadata.desktop missing)."));
+                return;
+            }
+
+            const QString userBase = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+                + QStringLiteral("/sddm/themes");
+            const QString systemBase = Platform::writableSystemThemeDir();
+            const QString installBase = systemWide ? systemBase : userBase;
+
+            QString prepareError;
+            if (!prepareInstallBase(installBase, systemWide, &prepareError)) {
+                finish(false, prepareError);
+                return;
+            }
+
+            for (const QString &themeRoot : themeRoots) {
+                const QString folderName = QFileInfo(themeRoot).fileName();
+                const QString destination = uniqueInstallPath(installBase, folderName);
+                if (destination.isEmpty()) {
+                    finish(false, QStringLiteral("Could not choose a destination folder for %1.").arg(folderName));
+                    return;
+                }
+
+                QMetaObject::invokeMethod(this, [this, folderName]() {
+                    setProgressMessage(QStringLiteral("Installing %1…").arg(folderName));
+                }, Qt::QueuedConnection);
+
+                if (!installDirectory(themeRoot, destination, systemWide)) {
+                    finish(false,
+                           systemWide
+                               ? QStringLiteral("Failed to install %1 system-wide (authentication may have been cancelled).")
+                                     .arg(folderName)
+                               : QStringLiteral("Failed to install %1.").arg(folderName));
+                    return;
+                }
+
+                installedThemeIds.append(QFileInfo(destination).fileName());
+            }
+
+            finish(true,
+                   installedThemeIds.size() == 1
+                       ? QStringLiteral("Installed 1 theme: %1").arg(installedThemeIds.constFirst())
+                       : QStringLiteral("Installed %1 themes.").arg(installedThemeIds.size()));
+        });
+        return true;
+    }
+
+    if (!info.isFile()) {
+        setInstalling(false);
+        Q_EMIT installFinished(false, QStringLiteral("Path must be a folder or an archive file."), {});
+        return false;
+    }
+
+    if (!isSupportedArchive(localPath)) {
+        setInstalling(false);
+        Q_EMIT installFinished(false,
+                               QStringLiteral("Unsupported archive format. Use zip, tar, tar.gz, tar.xz, tar.bz2, or tar.zst."),
+                               {});
+        return false;
+    }
+
+    (void)QtConcurrent::run([this, localPath, systemWide]() {
+        QStringList installedThemeIds;
+
+        auto finish = [this, &installedThemeIds](bool success, const QString &message) {
+            QMetaObject::invokeMethod(this, [this, success, message, installedThemeIds]() {
+                setInstalling(false);
+                setProgressMessage(success ? QStringLiteral("Installation finished.") : message);
+                Q_EMIT installFinished(success, message, installedThemeIds);
+            }, Qt::QueuedConnection);
+        };
+
+        QTemporaryDir tempDir;
+        if (!tempDir.isValid()) {
+            finish(false, QStringLiteral("Could not create a temporary directory."));
+            return;
+        }
+
+        QMetaObject::invokeMethod(this, [this]() {
+            setProgressMessage(QStringLiteral("Extracting archive…"));
+        }, Qt::QueuedConnection);
+
+        QString extractError;
+        if (!extractArchive(localPath, tempDir.path(), &extractError)) {
+            finish(false, extractError);
+            return;
+        }
+
+        QMetaObject::invokeMethod(this, [this]() {
+            setProgressMessage(QStringLiteral("Looking for SDDM themes…"));
+        }, Qt::QueuedConnection);
+
+        const QStringList themeRoots = findThemeRoots(tempDir.path());
+        if (themeRoots.isEmpty()) {
+            finish(false, QStringLiteral("No SDDM themes found in the archive (metadata.desktop missing)."));
+            return;
+        }
+
+        const QString userBase = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+            + QStringLiteral("/sddm/themes");
+        const QString systemBase = Platform::writableSystemThemeDir();
+        const QString installBase = systemWide ? systemBase : userBase;
+
+        QString prepareError;
+        if (!prepareInstallBase(installBase, systemWide, &prepareError)) {
+            finish(false, prepareError);
+            return;
         }
 
         for (const QString &themeRoot : themeRoots) {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "greeterpreview.h"
+#include "greetercapabilities.h"
 #include "themeapplier.h"
 #include "themeinstaller.h"
 #include "themescanner.h"
@@ -77,6 +78,11 @@ int main(int argc, char *argv[])
     if (!qEnvironmentVariableIsSet("QT_FFMPEG_DECODING_HW_DEVICE_TYPES")) {
         qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "");
     }
+    // Nix builds pin SOURCE_DATE_EPOCH, so qrc timestamps never change and a
+    // stale qmlcache can keep serving an old UI after rebuilds.
+    if (!qEnvironmentVariableIsSet("QML_DISK_CACHE")) {
+        qputenv("QML_DISK_CACHE", "disable");
+    }
 
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationName(QStringLiteral("sddm-variant-manager"));
@@ -92,6 +98,7 @@ int main(int argc, char *argv[])
     ThemeApplier themeApplier;
     GreeterPreview greeterPreview;
     ThemeInstaller themeInstaller;
+    GreeterCapabilities greeterCapabilities;
 
     QObject::connect(&app, &QGuiApplication::aboutToQuit, &greeterPreview, [&greeterPreview]() {
         if (greeterPreview.running()) {
@@ -110,6 +117,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("themeApplier"), &themeApplier);
     engine.rootContext()->setContextProperty(QStringLiteral("greeterPreview"), &greeterPreview);
     engine.rootContext()->setContextProperty(QStringLiteral("themeInstaller"), &themeInstaller);
+    engine.rootContext()->setContextProperty(QStringLiteral("greeterCapabilities"), &greeterCapabilities);
 
     QObject::connect(
         &themeApplier,
