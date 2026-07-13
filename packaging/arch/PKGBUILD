@@ -1,6 +1,6 @@
 # Maintainer: Melker Halberd Pereira Alves <melker168@gmail.com>
 pkgname=sddm-variant-manager
-pkgver=2.0.0
+pkgver=2.0.1
 pkgrel=1
 pkgdesc="Browse, preview, apply, and install SDDM login theme variants"
 arch=('x86_64')
