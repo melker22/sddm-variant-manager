@@ -488,6 +488,16 @@ QVariantMap ThemeScanner::buildThemeEntry(const QString &themePath, const QStrin
     theme.insert(QStringLiteral("hasVariants"), hasVariants);
     theme.insert(QStringLiteral("variants"), variants);
 
+    QString activeConfigFile;
+    QString previewPath;
+    QString thumbnailPath;
+    if (hasVariants) {
+        activeConfigFile = readDesktopValue(metadataPath, QStringLiteral("ConfigFile"));
+    } else {
+        previewPath = resolveSimpleThemePreview(themePath, metadataPath);
+        thumbnailPath = resolveSimpleThemeThumbnail(previewPath);
+    }
+
     // Detect themes that need QtMultimedia in the *system* greeter (video backgrounds).
     bool requiresMultimedia = QFile::exists(themePath + QStringLiteral("/BackgroundVideo.qml"));
     if (!requiresMultimedia) {
@@ -498,7 +508,7 @@ QVariantMap ThemeScanner::buildThemeEntry(const QString &themePath, const QStrin
             || isVideoFile(themePath + QLatin1Char('/') + background);
     }
     if (!requiresMultimedia && !hasVariants) {
-        requiresMultimedia = isVideoFile(theme.value(QStringLiteral("previewPath")).toString());
+        requiresMultimedia = isVideoFile(previewPath);
     }
     if (!requiresMultimedia && hasVariants) {
         for (const QVariant &variantVar : variants) {
@@ -508,19 +518,11 @@ QVariantMap ThemeScanner::buildThemeEntry(const QString &themePath, const QStrin
             }
         }
     }
-    theme.insert(QStringLiteral("requiresMultimedia"), requiresMultimedia);
 
-    if (hasVariants) {
-        theme.insert(QStringLiteral("activeConfigFile"),
-                     readDesktopValue(metadataPath, QStringLiteral("ConfigFile")));
-        theme.insert(QStringLiteral("previewPath"), QString());
-        theme.insert(QStringLiteral("thumbnailPath"), QString());
-    } else {
-        const QString previewPath = resolveSimpleThemePreview(themePath, metadataPath);
-        theme.insert(QStringLiteral("activeConfigFile"), QString());
-        theme.insert(QStringLiteral("previewPath"), previewPath);
-        theme.insert(QStringLiteral("thumbnailPath"), resolveSimpleThemeThumbnail(previewPath));
-    }
+    theme.insert(QStringLiteral("requiresMultimedia"), requiresMultimedia);
+    theme.insert(QStringLiteral("activeConfigFile"), activeConfigFile);
+    theme.insert(QStringLiteral("previewPath"), previewPath);
+    theme.insert(QStringLiteral("thumbnailPath"), thumbnailPath);
 
     return theme;
 }
