@@ -88,7 +88,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationName(QStringLiteral("sddm-variant-manager"));
     QGuiApplication::setOrganizationName(QStringLiteral("Melker"));
     QGuiApplication::setOrganizationDomain(QStringLiteral("github.melker"));
-    QGuiApplication::setApplicationVersion(QStringLiteral("2.0.1"));
+    QGuiApplication::setApplicationVersion(QStringLiteral("2.0.2"));
     QGuiApplication::setQuitOnLastWindowClosed(true);
     QGuiApplication::setDesktopFileName(QString::fromUtf8(kAppIconName));
 

@@ -1,6 +1,6 @@
 # SDDM Variant Manager
 
-![SDDM Variant Manager screenshot](docs/screenshot.png)
+![SDDM Variant Manager screenshot](screenshot.jpg)
 
 Graphical tool for anyone who uses **SDDM** — whether you run **Hyprland**, **Plasma**, or another desktop — to browse, preview, apply, and install login screen themes without logging out every time. It supports multi-variant collections such as [ZenMatrix Collection](https://github.com/OminduD/sddm-themes).
 
