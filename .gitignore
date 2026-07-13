@@ -3,5 +3,6 @@
 /result
 /.qt/
 /.qtcreator/
+/tmp/
 CMakeLists.txt.user
 *.autosave
