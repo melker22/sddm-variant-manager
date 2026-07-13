@@ -4,5 +4,6 @@
 /.qt/
 /.qtcreator/
 /tmp/
+/design/
 CMakeLists.txt.user
 *.autosave

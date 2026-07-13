@@ -27,6 +27,7 @@ stdenv.mkDerivation {
         "result"
         ".qtcreator"
         ".cursor"
+        "design"
       ]);
   };
 
