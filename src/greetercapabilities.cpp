@@ -97,6 +97,39 @@ bool GreeterCapabilities::hasVirtualKeyboard() const
     return m_hasVirtualKeyboard;
 }
 
+bool GreeterCapabilities::previewCanProvideMultimedia() const
+{
+    return m_previewCanProvideMultimedia;
+}
+
+bool GreeterCapabilities::hasQt5Greeter() const
+{
+    return m_hasQt5Greeter;
+}
+
+bool GreeterCapabilities::hasQt6Greeter() const
+{
+    return m_hasQt6Greeter;
+}
+
+int GreeterCapabilities::greeterQtMajor() const
+{
+    return m_greeterQtMajor;
+}
+
+QString GreeterCapabilities::greeterQtLabel() const
+{
+    if (m_greeterQtMajor == 6) {
+        return m_hasQt5Greeter ? QStringLiteral("Qt6 (also has Qt5 greeter)")
+                               : QStringLiteral("Qt6");
+    }
+    if (m_greeterQtMajor == 5) {
+        return m_hasQt6Greeter ? QStringLiteral("Qt5 (also has Qt6 greeter)")
+                               : QStringLiteral("Qt5");
+    }
+    return QStringLiteral("Unknown");
+}
+
 QString GreeterCapabilities::greeterBinary() const
 {
     return m_greeterBinary;
@@ -109,8 +142,11 @@ QString GreeterCapabilities::summary() const
     }
 
     QStringList parts;
+    parts << QStringLiteral("Greeter: %1").arg(greeterQtLabel());
     parts << (m_hasQtMultimedia ? QStringLiteral("QtMultimedia: yes")
-                                : QStringLiteral("QtMultimedia: missing"));
+                                : (m_previewCanProvideMultimedia
+                                       ? QStringLiteral("QtMultimedia: preview only")
+                                       : QStringLiteral("QtMultimedia: missing")));
     parts << (m_hasQt5Compat ? QStringLiteral("Qt5Compat: yes")
                              : QStringLiteral("Qt5Compat: missing"));
     parts << (m_hasQtSvg ? QStringLiteral("QtSvg: yes") : QStringLiteral("QtSvg: missing"));
@@ -180,17 +216,30 @@ QStringList GreeterCapabilities::extractColonPathsFromBinary(const QByteArray &d
 
 void GreeterCapabilities::refresh()
 {
-    m_greeterBinary = QStandardPaths::findExecutable(QStringLiteral("sddm-greeter-qt6"));
-    if (m_greeterBinary.isEmpty()) {
-        m_greeterBinary = QStandardPaths::findExecutable(QStringLiteral("sddm-greeter"));
+    const QString qt6Greeter = QStandardPaths::findExecutable(QStringLiteral("sddm-greeter-qt6"));
+    const QString qt5Greeter = QStandardPaths::findExecutable(QStringLiteral("sddm-greeter"));
+    m_hasQt6Greeter = !qt6Greeter.isEmpty();
+    // sddm-greeter is the classic Qt5 binary name; ignore if it somehow points at qt6.
+    m_hasQt5Greeter = !qt5Greeter.isEmpty()
+        && !QFileInfo(qt5Greeter).fileName().contains(QStringLiteral("qt6"), Qt::CaseInsensitive);
+
+    // Prefer the greeter SDDM is most likely to use: Qt6 when present, else Qt5.
+    if (m_hasQt6Greeter) {
+        m_greeterBinary = qt6Greeter;
+        m_greeterQtMajor = 6;
+    } else if (m_hasQt5Greeter) {
+        m_greeterBinary = qt5Greeter;
+        m_greeterQtMajor = 5;
+    } else {
+        m_greeterBinary.clear();
+        m_greeterQtMajor = 0;
     }
 
     m_hasQtMultimedia = false;
     m_hasQt5Compat = false;
     m_hasQtSvg = false;
     m_hasVirtualKeyboard = false;
-
-    QStringList qmlRoots;
+    m_previewCanProvideMultimedia = false;
 
     // Prefer modules exposed by the greeter wrap itself (what the real login uses).
     if (!m_greeterBinary.isEmpty()) {
@@ -201,10 +250,13 @@ void GreeterCapabilities::refresh()
             const QStringList multimediaRoots =
                 extractColonPathsFromBinary(data, QByteArrayLiteral("qtmultimedia"));
             for (const QString &root : multimediaRoots) {
-                qmlRoots.append(root);
                 if (pathProvidesModule(root, QStringLiteral("QtMultimedia"))) {
                     m_hasQtMultimedia = true;
                 }
+            }
+            // makeBinaryWrapper embeds store paths as a blob; detect by substring too.
+            if (data.contains("qtmultimedia") || data.contains("QtMultimedia")) {
+                m_hasQtMultimedia = true;
             }
             if (data.contains("qt5compat") || data.contains("Qt5Compat")) {
                 m_hasQt5Compat = true;
@@ -222,7 +274,6 @@ void GreeterCapabilities::refresh()
     // Also check the system profile QML root (after nixos-rebuild with extraPackages).
     const QString systemQml = Platform::systemQmlImportDir();
     if (!systemQml.isEmpty()) {
-        qmlRoots.append(systemQml);
         if (pathProvidesModule(systemQml, QStringLiteral("QtMultimedia"))) {
             m_hasQtMultimedia = true;
         }
@@ -234,7 +285,6 @@ void GreeterCapabilities::refresh()
             m_hasVirtualKeyboard = true;
         }
         if (QDir(systemQml + QStringLiteral("/QtQuick")).exists()) {
-            // Svg support is usually via plugins; treat presence of qtsvg plugins nearby.
             QDir plugins(systemQml);
             if (plugins.cdUp() && QDir(plugins.absoluteFilePath(QStringLiteral("plugins/imageformats"))).exists()) {
                 m_hasQtSvg = true;
@@ -242,11 +292,17 @@ void GreeterCapabilities::refresh()
         }
     }
 
-    // Fallback: any qtmultimedia root found via process env (dev shell) is NOT enough
-    // for the real greeter — only mark multimedia true if greeter wrap or system profile
-    // provides it. (Already handled above.)
+    // Full Preview can inject this app's Qt + env paths (see GreeterPreview).
+    for (const QString &root : Platform::previewQmlImportPaths()) {
+        if (pathProvidesModule(root, QStringLiteral("QtMultimedia"))) {
+            m_previewCanProvideMultimedia = true;
+            break;
+        }
+    }
+    if (m_hasQtMultimedia) {
+        m_previewCanProvideMultimedia = true;
+    }
 
-    Q_UNUSED(qmlRoots)
     m_ready = true;
     Q_EMIT changed();
 }
@@ -300,9 +356,110 @@ QString GreeterCapabilities::advisoryForTheme(const QVariantMap &theme) const
         ? theme.value(QStringLiteral("id")).toString()
         : theme.value(QStringLiteral("name")).toString();
 
-    return QStringLiteral(
-               "Theme “%1” needs %2 in the system SDDM greeter. "
-               "The app will not modify the theme. Install the missing module(s) "
-               "for SDDM (on NixOS: sddm.extraPackages + nixos-rebuild), then refresh.")
-        .arg(themeName, missing.join(QStringLiteral(", ")));
+    QString msg = QStringLiteral(
+                      "Theme “%1” needs %2 for the real login greeter. "
+                      "The theme files are not modified.")
+                      .arg(themeName, missing.join(QStringLiteral(", ")));
+
+    if (themeNeedsMultimedia(theme) && m_previewCanProvideMultimedia && !m_hasQtMultimedia) {
+        msg += QStringLiteral(
+            " Full Preview will inject Qt modules from this app so you can still test. "
+            "For the actual login screen on NixOS, add kdePackages.qtmultimedia to "
+            "services.displayManager.sddm.extraPackages and nixos-rebuild.");
+    } else if (isNixOS()) {
+        msg += QStringLiteral(
+            " On NixOS: services.displayManager.sddm.extraPackages = with pkgs.kdePackages; "
+            "[ qtmultimedia qtsvg qt5compat ]; then nixos-rebuild switch.");
+    } else {
+        msg += QStringLiteral(
+            " On Arch: ensure qt6-multimedia (and qt6-5compat if needed) are installed "
+            "so the SDDM greeter can load them.");
+    }
+    return msg;
+}
+
+QString GreeterCapabilities::installNotesForTheme(const QVariantMap &theme) const
+{
+    QStringList notes;
+
+    const QString qtMismatch = qtCompatibilityWarning(theme);
+    if (!qtMismatch.isEmpty()) {
+        notes << qtMismatch;
+    }
+
+    if (themeNeedsMultimedia(theme)) {
+        if (m_hasQtMultimedia) {
+            notes << QStringLiteral("Video/multimedia: greeter OK");
+        } else if (m_previewCanProvideMultimedia) {
+            notes << QStringLiteral(
+                "Video theme: Full Preview uses this app’s QtMultimedia. "
+                "Real login still needs it on the system SDDM greeter "
+                "(NixOS: sddm.extraPackages += kdePackages.qtmultimedia)");
+        } else {
+            notes << QStringLiteral(
+                "Video theme: QtMultimedia missing for greeter and preview. "
+                "Install qt6-multimedia / kdePackages.qtmultimedia");
+        }
+    }
+
+    const QStringList missing = missingRequirementsForTheme(theme);
+    for (const QString &m : missing) {
+        if (m.startsWith(QStringLiteral("QtMultimedia"))) {
+            continue;
+        }
+        notes << QStringLiteral("Also needs: %1").arg(m);
+    }
+
+    return notes.join(QStringLiteral(" · "));
+}
+
+bool GreeterCapabilities::themeIncompatibleWithGreeter(const QVariantMap &theme) const
+{
+    return !qtCompatibilityWarning(theme).isEmpty();
+}
+
+QString GreeterCapabilities::qtCompatibilityWarning(const QVariantMap &theme) const
+{
+    if (theme.isEmpty()) {
+        return {};
+    }
+
+    const QString stack = theme.value(QStringLiteral("qtStack")).toString();
+    const bool themeIsQt5 = theme.value(QStringLiteral("requiresQt5")).toBool()
+        || stack == QStringLiteral("Qt5");
+    const bool themeIsQt6 = theme.value(QStringLiteral("requiresQt6")).toBool()
+        || stack == QStringLiteral("Qt6");
+
+    // Theme Qt5, system greeter is Qt6-only → Layan-style failure.
+    if (themeIsQt5 && m_hasQt6Greeter && !m_hasQt5Greeter) {
+        return QStringLiteral(
+            "Incompatible: this theme is Qt5, but your SDDM greeter is Qt6 only "
+            "(sddm-greeter-qt6). It will not load correctly at login "
+            "(QtQuick.Controls 1.x / old APIs). Use a Qt6 theme, or install a Qt5 greeter "
+            "if your distro still ships sddm-greeter.");
+    }
+
+    // Theme Qt5, both greeters present — SDDM often still prefers Qt6.
+    if (themeIsQt5 && m_hasQt6Greeter && m_hasQt5Greeter) {
+        return QStringLiteral(
+            "Warning: this theme is Qt5. Your system also has a Qt6 greeter; SDDM may use "
+            "sddm-greeter-qt6 by default and fail to load this theme at login.");
+    }
+
+    // Theme Qt6, system greeter is Qt5-only → reverse case the user asked about.
+    if (themeIsQt6 && m_hasQt5Greeter && !m_hasQt6Greeter) {
+        return QStringLiteral(
+            "Incompatible: this theme is Qt6, but your SDDM greeter is Qt5 only "
+            "(sddm-greeter). It will not load correctly at login. Use a Qt5 theme, or "
+            "upgrade SDDM to a Qt6 greeter (sddm-greeter-qt6).");
+    }
+
+    // Theme Qt6, both present — usually OK if Qt6 is preferred.
+    if (themeIsQt6 && m_hasQt5Greeter && m_hasQt6Greeter) {
+        return {};
+    }
+
+    // Theme Qt5, greeter Qt5 only — OK.
+    // Theme Qt6, greeter Qt6 only — OK.
+    return {};
 }

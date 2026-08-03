@@ -28,16 +28,12 @@ void ThemeScanner::rescan()
 {
     m_themes.clear();
 
-    const QStringList systemDirs = Platform::systemThemeScanDirs();
-    for (const QString &systemDir : systemDirs) {
-        scanBaseDirectory(systemDir);
+    const QStringList scanDirs = Platform::allThemeScanDirs();
+    for (const QString &dir : scanDirs) {
+        scanBaseDirectory(dir);
     }
 
-    const QString localBase = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
-        + QStringLiteral("/sddm/themes");
-    if (!systemDirs.contains(localBase)) {
-        scanBaseDirectory(localBase);
-    }
+    refreshCurrentSddmThemeId();
 
     Q_EMIT themesChanged();
     generateMissingThumbnails();
@@ -46,6 +42,76 @@ void ThemeScanner::rescan()
 int ThemeScanner::themeCount() const
 {
     return m_themes.size();
+}
+
+QString ThemeScanner::currentSddmThemeId() const
+{
+    return m_currentSddmThemeId;
+}
+
+QString ThemeScanner::readSddmCurrentFromFile(const QString &filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    bool inThemeSection = false;
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        QString line = in.readLine().trimmed();
+        if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) {
+            continue;
+        }
+        if (line.startsWith(QLatin1Char('[')) && line.endsWith(QLatin1Char(']'))) {
+            inThemeSection = (line.compare(QStringLiteral("[Theme]"), Qt::CaseInsensitive) == 0);
+            continue;
+        }
+        if (!inThemeSection) {
+            continue;
+        }
+        if (line.startsWith(QStringLiteral("Current="), Qt::CaseInsensitive)) {
+            return line.mid(QStringLiteral("Current=").size()).trimmed();
+        }
+    }
+    return {};
+}
+
+void ThemeScanner::refreshCurrentSddmThemeId()
+{
+    // Prefer our drop-in (written last / highest priority on NixOS), then common paths.
+    const QStringList candidates = {
+        Platform::nixosSddmDropInPath(),
+        QStringLiteral("/etc/sddm.conf.d/kde_settings.conf"),
+        QStringLiteral("/etc/sddm.conf.d/sddm.conf"),
+        QStringLiteral("/etc/sddm.conf"),
+    };
+
+    // Also scan remaining drop-ins for Current= (first non-empty wins after preferred list).
+    QStringList searchOrder = candidates;
+    const QDir dropInDir(QStringLiteral("/etc/sddm.conf.d"));
+    if (dropInDir.exists()) {
+        const QStringList confs = dropInDir.entryList({QStringLiteral("*.conf")}, QDir::Files, QDir::Name);
+        for (const QString &name : confs) {
+            const QString path = dropInDir.absoluteFilePath(name);
+            if (!searchOrder.contains(path)) {
+                searchOrder.append(path);
+            }
+        }
+    }
+
+    // Our managed drop-in should win if present: check it first (already first in list).
+    // For other drop-ins, later lexical names often override — still prefer explicit Current
+    // from our file first, then kde_settings, then first match.
+    for (const QString &path : searchOrder) {
+        const QString current = readSddmCurrentFromFile(path);
+        if (!current.isEmpty()) {
+            m_currentSddmThemeId = current;
+            return;
+        }
+    }
+
+    m_currentSddmThemeId.clear();
 }
 
 bool ThemeScanner::ffmpegAvailable() const
@@ -519,10 +585,81 @@ QVariantMap ThemeScanner::buildThemeEntry(const QString &themePath, const QStrin
         }
     }
 
+    const QString metaQtVersion = readDesktopValue(metadataPath, QStringLiteral("QtVersion"));
+    const bool usesQt5Stack = themeUsesQt5Stack(themePath)
+        || metaQtVersion == QStringLiteral("5");
+    const bool usesQt6Stack = !usesQt5Stack
+        && (themeUsesQt6Stack(themePath) || metaQtVersion == QStringLiteral("6"));
+
     theme.insert(QStringLiteral("requiresMultimedia"), requiresMultimedia);
+    theme.insert(QStringLiteral("requiresQt5"), usesQt5Stack);
+    theme.insert(QStringLiteral("requiresQt6"), usesQt6Stack);
+    theme.insert(QStringLiteral("qtStack"),
+                 usesQt5Stack ? QStringLiteral("Qt5")
+                              : (usesQt6Stack ? QStringLiteral("Qt6") : QStringLiteral("Unknown")));
     theme.insert(QStringLiteral("activeConfigFile"), activeConfigFile);
     theme.insert(QStringLiteral("previewPath"), previewPath);
     theme.insert(QStringLiteral("thumbnailPath"), thumbnailPath);
 
     return theme;
+}
+
+bool ThemeScanner::themeUsesQt5Stack(const QString &themePath)
+{
+    if (themePath.isEmpty() || !QDir(themePath).exists()) {
+        return false;
+    }
+
+    QDirIterator it(themePath, {QStringLiteral("*.qml")}, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        QFile file(it.next());
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            continue;
+        }
+        const QByteArray content = file.readAll();
+        // Classic Plasma SDDM themes (Layan, many Breeze forks) — not loadable by
+        // sddm-greeter-qt6 without import rewrites / Qt5 greeter.
+        if (content.contains("QtQuick.Controls 1.")
+            || content.contains("QtQuick.Controls.Styles")
+            || content.contains("QtGraphicalEffects 1.")
+            || content.contains("import QtGraphicalEffects\n")
+            || content.contains("import QtGraphicalEffects\r")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ThemeScanner::themeUsesQt6Stack(const QString &themePath)
+{
+    if (themePath.isEmpty() || !QDir(themePath).exists()) {
+        return false;
+    }
+
+    // If clearly Qt5, do not also classify as Qt6.
+    if (themeUsesQt5Stack(themePath)) {
+        return false;
+    }
+
+    QDirIterator it(themePath, {QStringLiteral("*.qml")}, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        QFile file(it.next());
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            continue;
+        }
+        const QByteArray content = file.readAll();
+        if (content.contains("Qt5Compat")
+            || content.contains("import QtQuick.Controls 2.")
+            || content.contains("import QtQuick.Controls\n")
+            || content.contains("import QtQuick.Controls\r")
+            || content.contains("import QtQuick\n")
+            || content.contains("import QtQuick 6.")
+            || content.contains("QtMultimedia")
+            || content.contains("import org.kde.kirigami")) {
+            return true;
+        }
+    }
+
+    // metadata QtVersion=6 is handled by the caller; unknown themes stay Unknown.
+    return false;
 }

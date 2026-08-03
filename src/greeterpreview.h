@@ -5,6 +5,7 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QTemporaryDir>
 #include <memory>
 
@@ -35,9 +36,13 @@ private:
     bool m_usingTempThemeCopy = false;
     std::unique_ptr<QTemporaryDir> m_tempThemeDir;
 
-    QString greeterBinaryForTheme(const QString &metadataPath) const;
+    QString greeterBinaryForTheme(const QString &themePath, const QString &metadataPath) const;
+    QProcessEnvironment buildPreviewEnvironment() const;
     bool backupMetadata(const QString &metadataPath);
     bool restoreMetadata();
     bool writeConfigFileLine(const QString &metadataPath, const QString &configFile);
     void onGreeterFinished(int exitCode, QProcess::ExitStatus status);
+
+    static bool themeNeedsQt5Stack(const QString &themePath);
+    static bool modernizeThemeQmlForQt6Greeter(const QString &themeRoot);
 };

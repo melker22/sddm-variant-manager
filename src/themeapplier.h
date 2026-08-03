@@ -25,5 +25,6 @@ Q_SIGNALS:
 private:
     bool runPkexecCommand(const QStringList &arguments, int timeoutMs = 120000);
     bool writeConfigFileLine(const QString &metadataPath, const QString &configFile);
-    bool writeNixosSddmDropIn(const QString &themeId, const QString &themePath);
+    /** Write /etc/sddm.conf.d drop-in; publish $HOME themes into the system ThemeDir. */
+    bool writeSddmDropIn(const QString &themeId, const QString &themePath);
 };

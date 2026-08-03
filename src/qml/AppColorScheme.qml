@@ -14,6 +14,7 @@ QtObject {
         if (Qt.styleHints.colorScheme === Qt.ColorScheme.Light) {
             return false
         }
+        // Unknown: light text usually means a dark system palette.
         return Platform.Theme.textColor.hslLightness > 0.5
     }
 
@@ -24,6 +25,7 @@ QtObject {
     readonly property color primaryContainerFg: isDark ? "#EDE8FD" : "#6B4ED8"
     readonly property color accentDark: isDark ? "#C4B0FA" : "#6B4ED8"
     readonly property color accentHover: isDark ? "#9B82F0" : "#7455d4"
+    readonly property color disabledPrimary: isDark ? "#5C4B8A" : "#C4B5F0"
 
     readonly property color secondary: isDark ? "#A8B4C4" : "#64748B"
     readonly property color secondaryFg: "#FFFFFF"
@@ -38,14 +40,28 @@ QtObject {
     readonly property color background: isDark ? "#12141A" : "#F4F6FB"
     readonly property color surface: isDark ? "#1A1D26" : "#FEFDFE"
     readonly property color surfaceVariant: isDark ? "#2A2F3A" : "#E2E8F0"
-    readonly property color outline: isDark ? "#64748B" : "#E2E8F0"
+    readonly property color outline: isDark ? "#4B5568" : "#E2E8F0"
     readonly property color surfaceFg: isDark ? "#F1F5F9" : "#1A1626"
-    readonly property color surfaceVariantFg: isDark ? "#94A3B8" : "#64748B"
-    readonly property color textMuted: isDark ? "#64748B" : "#94A3B8"
+    readonly property color surfaceVariantFg: isDark ? "#A8B4C4" : "#64748B"
+    readonly property color textMuted: isDark ? "#8B97A8" : "#94A3B8"
 
     readonly property color sidebar: isDark ? "#17151F" : "#EEE9FB"
-    readonly property color cardBorder: isDark ? "#2F3542" : "#E2E8F0"
+    readonly property color cardBorder: isDark ? "#363D4D" : "#E2E8F0"
     readonly property color accentGlow: isDark ? "#8B67F233" : "#8B67F222"
+
+    // Form fields / controls (Basic style replacements)
+    readonly property color fieldBg: isDark ? "#141821" : "#FFFFFF"
+    readonly property color fieldBorder: isDark ? "#3D4556" : "#E2E8F0"
+    readonly property color fieldBorderFocus: primary
+    readonly property color fieldPlaceholder: isDark ? "#7A8699" : "#94A3B8"
+    readonly property color fieldSelection: isDark ? "#4A3A7A" : "#D4C8FA"
+    readonly property color checkboxBorder: isDark ? "#64748B" : "#94A3B8"
+    readonly property color overlayScrim: isDark ? "#00000099" : "#00000055"
+
+    readonly property color danger: isDark ? "#F2B8B5" : "#B3261E"
+    readonly property color dangerContainer: isDark ? "#4A1C1A" : "#FCE8E6"
+    readonly property color warning: isDark ? "#FFB74D" : "#E65100"
+    readonly property color warningContainer: isDark ? "#4A2E12" : "#FFF3E0"
 
     readonly property color badgeSystemBg: isDark ? "#1B3A24" : "#E8F5E9"
     readonly property color badgeSystemText: isDark ? "#81C784" : "#2E7D32"
@@ -60,4 +76,5 @@ QtObject {
     readonly property string fontBody: "Manrope"
     readonly property int radiusCard: 10
     readonly property int radiusModal: 16
+    readonly property int radiusControl: 8
 }

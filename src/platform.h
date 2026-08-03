@@ -13,6 +13,15 @@ bool isNixOS();
 /** Traditional / NixOS read-only theme roots shipped with the system. */
 QStringList systemThemeScanDirs();
 
+/**
+ * Every directory that may contain SDDM themes: system roots, XDG_DATA_DIRS,
+ * and the per-user install location (~/.local/share/sddm/themes).
+ */
+QStringList allThemeScanDirs();
+
+/** Per-user writable theme directory (~/.local/share/sddm/themes). */
+QString userThemeDir();
+
 /** Writable location for system-wide theme installs. */
 QString writableSystemThemeDir();
 
@@ -34,5 +43,16 @@ QString nixosSddmDropInPath();
  * QML2_IMPORT_PATH from nix-shell / Qt Creator).
  */
 QString systemQmlImportDir();
+
+/**
+ * QML import roots for Full Preview: this app's Qt (includes Multimedia when
+ * linked), system profile, common distro paths, and any roots already in the
+ * process environment. Used so sddm-greeter --test-mode can load modules that
+ * the system greeter wrap may not ship.
+ */
+QStringList previewQmlImportPaths();
+
+/** Qt plugin roots for Full Preview (multimedia backends, imageformats, …). */
+QStringList previewQtPluginPaths();
 
 } // namespace Platform

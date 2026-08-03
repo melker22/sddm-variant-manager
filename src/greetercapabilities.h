@@ -22,6 +22,13 @@ class GreeterCapabilities : public QObject
     Q_PROPERTY(bool hasQt5Compat READ hasQt5Compat NOTIFY changed)
     Q_PROPERTY(bool hasQtSvg READ hasQtSvg NOTIFY changed)
     Q_PROPERTY(bool hasVirtualKeyboard READ hasVirtualKeyboard NOTIFY changed)
+    /** True if Full Preview can inject QtMultimedia (app Qt / env), even if system greeter lacks it. */
+    Q_PROPERTY(bool previewCanProvideMultimedia READ previewCanProvideMultimedia NOTIFY changed)
+    Q_PROPERTY(bool hasQt5Greeter READ hasQt5Greeter NOTIFY changed)
+    Q_PROPERTY(bool hasQt6Greeter READ hasQt6Greeter NOTIFY changed)
+    /** Primary greeter stack: 5, 6, or 0 if unknown. */
+    Q_PROPERTY(int greeterQtMajor READ greeterQtMajor NOTIFY changed)
+    Q_PROPERTY(QString greeterQtLabel READ greeterQtLabel NOTIFY changed)
     Q_PROPERTY(QString greeterBinary READ greeterBinary NOTIFY changed)
     Q_PROPERTY(QString summary READ summary NOTIFY changed)
     Q_PROPERTY(QString nixosHint READ nixosHint CONSTANT)
@@ -35,6 +42,11 @@ public:
     bool hasQt5Compat() const;
     bool hasQtSvg() const;
     bool hasVirtualKeyboard() const;
+    bool previewCanProvideMultimedia() const;
+    bool hasQt5Greeter() const;
+    bool hasQt6Greeter() const;
+    int greeterQtMajor() const;
+    QString greeterQtLabel() const;
     QString greeterBinary() const;
     QString summary() const;
     QString nixosHint() const;
@@ -43,6 +55,14 @@ public:
     Q_INVOKABLE bool themeNeedsMultimedia(const QVariantMap &theme) const;
     Q_INVOKABLE QStringList missingRequirementsForTheme(const QVariantMap &theme) const;
     Q_INVOKABLE QString advisoryForTheme(const QVariantMap &theme) const;
+    /** Short note shown after installing a theme that needs greeter modules. */
+    Q_INVOKABLE QString installNotesForTheme(const QVariantMap &theme) const;
+    /**
+     * Human-readable Qt stack mismatch (theme Qt5 vs greeter Qt6, or reverse).
+     * Empty when compatible or unknown.
+     */
+    Q_INVOKABLE QString qtCompatibilityWarning(const QVariantMap &theme) const;
+    Q_INVOKABLE bool themeIncompatibleWithGreeter(const QVariantMap &theme) const;
 
 Q_SIGNALS:
     void changed();
@@ -53,6 +73,10 @@ private:
     bool m_hasQt5Compat = false;
     bool m_hasQtSvg = false;
     bool m_hasVirtualKeyboard = false;
+    bool m_previewCanProvideMultimedia = false;
+    bool m_hasQt5Greeter = false;
+    bool m_hasQt6Greeter = false;
+    int m_greeterQtMajor = 0;
     QString m_greeterBinary;
 
     static bool pathProvidesModule(const QString &qmlRoot, const QString &moduleDir);

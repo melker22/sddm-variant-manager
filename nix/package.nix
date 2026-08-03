@@ -6,13 +6,15 @@
   pkg-config,
   qt6,
   kdePackages,
-  git,
   ffmpeg,
+  gsettings-desktop-schemas,
+  gtk3,
+  glib,
 }:
 
 stdenv.mkDerivation {
   pname = "sddm-variant-manager";
-  version = "2.0.2";
+  version = "2.1.0";
 
   src = lib.cleanSourceWith {
     src = ../.;
@@ -50,15 +52,23 @@ stdenv.mkDerivation {
     kdePackages.karchive
     kdePackages.extra-cmake-modules
     kdePackages.qqc2-desktop-style
+    gsettings-desktop-schemas
+    gtk3
+    glib
   ];
 
   cmakeFlags = [
     "-DCMAKE_BUILD_TYPE=Release"
   ];
 
-  # Ensure git/ffmpeg are available for install-from-GitHub and video thumbnails.
+  # ffmpeg for video thumbnails; GSettings schemas so GTK file dialogs do not SIGABRT.
+  # Schemas live under share/gsettings-schemas/<pkg>/glib-2.0/schemas on Nix.
   qtWrapperArgs = [
-    "--prefix PATH : ${lib.makeBinPath [ git ffmpeg ]}"
+    "--prefix PATH : ${lib.makeBinPath [ ffmpeg ]}"
+    "--prefix XDG_DATA_DIRS : ${gsettings-desktop-schemas}/share"
+    "--prefix XDG_DATA_DIRS : ${gtk3}/share"
+    "--prefix GSETTINGS_SCHEMA_DIR : ${gsettings-desktop-schemas}/share/gsettings-schemas/${gsettings-desktop-schemas.name}/glib-2.0/schemas"
+    "--prefix GSETTINGS_SCHEMA_DIR : ${gtk3}/share/gsettings-schemas/${gtk3.name}/glib-2.0/schemas"
   ];
 
   meta = with lib; {

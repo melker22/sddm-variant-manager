@@ -2,9 +2,11 @@
 
 ![SDDM Variant Manager screenshot](screenshot.jpg)
 
-Graphical tool for anyone who uses **SDDM** — whether you run **Hyprland**, **Plasma**, or another desktop — to browse, preview, apply, and install login screen themes without logging out every time. It supports multi-variant collections such as [ZenMatrix Collection](https://github.com/OminduD/sddm-themes).
+Graphical tool for anyone who uses **SDDM** — whether you run **Hyprland**, **Plasma**, or another desktop — to browse, preview, apply, install, and remove login screen themes without logging out every time. It supports multi-variant collections such as [ZenMatrix Collection](https://github.com/OminduD/sddm-themes).
 
 The interface is built with **Qt 6** and **Kirigami** (KDE-style). You do not need a Plasma session day to day; you only need SDDM and the runtime libraries listed below.
+
+**Current version: 2.1.0**
 
 ## Why this exists
 
@@ -29,13 +31,15 @@ SDDM Variant Manager was built to fix that: browse variants, preview backgrounds
   - `/usr/share/sddm/themes/` (Arch / Manjaro / most distros)
   - `/run/current-system/sw/share/sddm/themes/` and `/var/lib/sddm/themes/` (**NixOS**)
   - `~/.local/share/sddm/themes/` (per-user)
+  - Extra roots from `XDG_DATA_DIRS`
 - Multi-variant themes: browse `Themes/*.conf` variants, apply a variant, preview backgrounds
 - Simple themes: apply as SDDM current theme and open a full greeter preview
 - High-quality static thumbnails for variant galleries (cached JPEG frames via `ffmpeg`)
-- **Install themes from GitHub** — paste an HTTPS or SSH repo URL and install all valid themes found
 - **Install from a local folder or archive** — zip, tar, tar.gz, tar.xz, tar.bz2, tar.zst (or drag-and-drop onto the window)
+- **Remove installed themes** — delete user (or writable system) themes from the inspector (with confirmation)
 - Full SDDM login preview via `sddm-greeter` / `sddm-greeter-qt6 --test-mode` (chosen automatically per theme)
-- **Greeter capability check**: detects whether the system SDDM greeter has QtMultimedia / Qt5Compat / etc., and warns when a theme needs something missing (themes are never rewritten)
+- **Qt5 vs Qt6 compatibility checks**: warns when a theme stack does not match your system greeter (e.g. Qt5 theme + Qt6-only greeter, or Qt6 theme + Qt5-only greeter)
+- **Greeter capability check**: detects QtMultimedia / Qt5Compat / etc., and reports missing modules (themes are never rewritten on disk for real login)
 - **NixOS-aware**: system installs go to `/var/lib/sddm/themes/`; activating a theme writes a drop-in under `/etc/sddm.conf.d/` (no rebuild required)
 
 ## Requirements
@@ -45,25 +49,13 @@ SDDM Variant Manager was built to fix that: browse variants, preview backgrounds
 - Qt 6 and KF6 Kirigami (a Plasma install on the system makes these easy to satisfy on Manjaro/Arch)
 - KF6 Archive (`karchive`) — extract zip / tar archives when installing from a local file
 - SDDM
-- `sddm-greeter-qt6` and/or `sddm-greeter` (Qt 5 themes use the latter)
+- `sddm-greeter-qt6` and/or `sddm-greeter` (Qt 5 themes prefer the latter when available)
 - `pkexec` (PolicyKit) for writing system theme files or system-wide installs
 
 ```bash
 # Arch / Manjaro (if not already pulled in with Plasma)
-pamac install karchive --no-confirm
-```
-
-### Required for GitHub installation
-
-- **`git`**
-
-```bash
-# Arch / Manjaro
-pamac install git --no-confirm
-# or: sudo pacman -S git
-
-# NixOS (user profile)
-nix profile add nixpkgs#git
+sudo pacman -S karchive
+# or: pamac install karchive --no-confirm
 ```
 
 ### Strongly recommended
@@ -72,7 +64,8 @@ nix profile add nixpkgs#git
 
 ```bash
 # Arch / Manjaro
-pamac install ffmpeg --no-confirm
+sudo pacman -S ffmpeg
+# or: pamac install ffmpeg --no-confirm
 
 # NixOS (user profile)
 nix profile add nixpkgs#ffmpeg
@@ -107,6 +100,14 @@ cmake --build build
 
 On NixOS you can also use the existing `shell.nix` / `./qtcreator-dev.sh` helpers to open Qt Creator with the correct QML plugin paths.
 
+Self-test (install folder + remove + archive install/rescan):
+
+```bash
+sddm-variant-manager --qa-self-test
+# or from a local debug build:
+./build/Desktop_Nix_Qt6-Debug/sddm-variant-manager --qa-self-test
+```
+
 ## Install
 
 ### NixOS (recommended)
@@ -129,11 +130,18 @@ nix run .
 
 ```bash
 nix profile add github:melker22/sddm-variant-manager
-# or, from a local clone:
+# or, from a local clone (after pulling latest):
+nix profile remove sddm-variant-manager   # if an older version is already installed
 nix profile add .
 ```
 
-#### 3. System-wide via flake (recommended)
+Then launch from the application menu or:
+
+```bash
+sddm-variant-manager
+```
+
+#### 3. System-wide via flake (recommended for multi-user machines)
 
 Add the flake input and put the package on `environment.systemPackages`:
 
@@ -165,6 +173,8 @@ Then rebuild:
 
 ```bash
 sudo nixos-rebuild switch
+# with askpass on some setups:
+# sudo -A nixos-rebuild switch --flake /etc/nixos#YOUR_HOSTNAME
 ```
 
 #### 4. Home Manager
@@ -184,26 +194,22 @@ home.packages = [
 ];
 ```
 
-The package wraps Qt/Kirigami (`wrapQtAppsHook`) and puts `git` / `ffmpeg` on `PATH`.
+The package wraps Qt/Kirigami (`wrapQtAppsHook`), ships **QtMultimedia** for the app UI/preview, and puts `ffmpeg` on `PATH`.
 
-#### 5. Video / animated themes — greeter Qt modules
+#### 5. Video themes and greeter Qt modules (real login)
 
-The app **installs themes unchanged**. Video backgrounds need **QtMultimedia inside the system SDDM greeter**, not only in the app. On NixOS add:
+The app **does not rewrite theme files** for the real login greeter. Video backgrounds need **QtMultimedia inside the system SDDM greeter**, not only in the app. On NixOS add:
 
 ```nix
 services.displayManager.sddm.extraPackages = with pkgs.kdePackages; [
   qtmultimedia
   qtsvg
+  qt5compat
   qtvirtualkeyboard
-];
-
-# Optional: also on PATH for tooling
-environment.systemPackages = with pkgs; [
-  kdePackages.qtmultimedia
 ];
 ```
 
-Then `sudo nixos-rebuild switch` and log out once so the new greeter wrap is used. The app reports missing greeter modules in the UI instead of rewriting theme files.
+Then `sudo nixos-rebuild switch` and log out once so the new greeter wrap is used. The app reports missing greeter modules and **Qt5 vs Qt6 theme mismatches** in the UI.
 
 ### How theme install/apply works on NixOS
 
@@ -218,7 +224,7 @@ NixOS keeps `/usr` and the SDDM theme tree under `/run/current-system/...` **imm
 
 That drop-in overrides `Theme` settings from the generated `00-nixos.conf` **without** a `nixos-rebuild`. Polkit (`pkexec`) is required; Plasma/SDDM already provide it.
 
-Home-installed themes are **copied unchanged** into `/var/lib/sddm/themes/` when activated, because the `sddm` user often cannot read `$HOME` (mode `700`).
+Home-installed themes are **copied unchanged** into `/var/lib/sddm/themes/` when activated, because the `sddm` user often cannot read `$HOME` (mode `700`). System-wide installs also fix permissions so the library UI can list `/var/lib/sddm/themes/` (path traversal on the sddm state dir when needed).
 
 **Read-only themes** from the Nix store (e.g. `breeze`) can still be **activated** and **previewed**. Applying a **variant** (editing `metadata.desktop`) needs a writable copy — install the theme system-wide or per-user first.
 
@@ -267,6 +273,12 @@ To remove later:
 sudo pacman -R sddm-variant-manager
 ```
 
+For video themes on Arch, install greeter modules as needed:
+
+```bash
+sudo pacman -S qt6-multimedia qt6-5compat qt6-svg
+```
+
 ### From source (manual)
 
 ```bash
@@ -279,35 +291,23 @@ This installs the binary to `/usr/bin` and adds a `.desktop` entry.
 
 ## Usage
 
-1. Launch **SDDM Variant Manager** from the application menu.
+1. Launch **SDDM Variant Manager** from the application menu (or `sddm-variant-manager`).
 2. Pick a theme in the sidebar.
-3. For multi-variant themes, select a variant and click **Apply variant**.
-4. For simple themes, click **Apply as SDDM theme**.
-5. Use **Full SDDM preview** to test the login screen.
+3. For multi-variant themes, select a variant and click **Apply as SDDM Theme** (with optional “Also set as SDDM current theme”).
+4. For simple themes, click **Apply as SDDM Theme**.
+5. Use **Full SDDM Preview** to test the login screen.
+6. Use **Remove Theme** in the inspector to delete a writable installed theme (confirmation required). Read-only Nix store themes cannot be deleted from the app.
 
 ### Install themes
 
-1. Click **Install theme** in the toolbar (or drag a folder/archive onto the window).
-2. Choose a source tab:
+Themes are installed only from **local files or folders** (download a ZIP/tarball from GitHub yourself if needed).
 
-#### From GitHub
-
-1. Paste a public GitHub URL, for example:
-   - `https://github.com/user/sddm-theme`
-   - `git@github.com:user/sddm-theme.git`
-2. Optionally enable **Install system-wide**.
-3. Click **Install**.
-
-Requires **`git`**.
-
-#### From file or folder
-
-1. Open the **From file or folder** tab.
-2. Use **Choose file…** for an archive (`.zip`, `.tar`, `.tar.gz` / `.tgz`, `.tar.xz` / `.txz`, `.tar.bz2`, `.tar.zst`) or **Choose folder…** for a directory that contains one or more themes (`metadata.desktop`).
-3. Optionally enable **Install system-wide**.
+1. Click **Install Theme** in the toolbar (or drag a folder/archive onto the window).
+2. Use **Choose Archive…** for `.zip`, `.tar`, `.tar.gz` / `.tgz`, `.tar.xz` / `.txz`, `.tar.bz2`, `.tar.zst`, or **Choose Folder…** for a directory that contains one or more themes (`metadata.desktop`).
+3. Optionally enable **Install system-wide** (needs admin password).
 4. Click **Install**.
 
-You can also **drag and drop** a theme folder or archive onto the main window — the install dialog opens already filled in.
+You can also paste a path or **drag and drop** a theme folder or archive onto the main window.
 
 #### Install locations
 
@@ -315,17 +315,27 @@ You can also **drag and drop** a theme folder or archive onto the main window �
 - On **NixOS**, check **Install system-wide** to install into `/var/lib/sddm/themes/` (not `/usr/share/...`).
 - On Arch / Manjaro, system-wide installs go to `/usr/share/sddm/themes/`.
 
-All folders containing `metadata.desktop` in the source are installed.
+All folders containing a valid `metadata.desktop` (+ QML entry) in the source are installed.
+
+### Qt5 vs Qt6 themes
+
+Many older themes (e.g. Layan-style Plasma greeters) use **QtQuick.Controls 1.x** and only work with a **Qt5** greeter. Modern systems often ship only **`sddm-greeter-qt6`**.
+
+The app detects the theme stack and your greeter stack and warns when they do not match:
+
+| Theme | System greeter | Result |
+|-------|----------------|--------|
+| Qt5 (Controls 1.x) | Qt6 only | Warning: incompatible at login |
+| Qt6 | Qt5 only | Warning: incompatible at login |
+| Matching stacks | Matching | OK |
+
+Prefer Qt6 themes on modern SDDM, or use a Qt5 greeter if your distro still provides `sddm-greeter`.
 
 ### Close full SDDM preview
 
 The preview opens the real SDDM greeter in test mode and covers the entire screen. **SDDM Variant Manager stays open in the background** — you need a separate way to dismiss the preview window.
 
-How you do that depends on your desktop environment.
-
 #### On KDE Plasma
-
-Plasma keeps the app reachable through the task switcher:
 
 1. Press **Alt+Tab**
 2. Select **SDDM Variant Manager**
@@ -333,23 +343,10 @@ Plasma keeps the app reachable through the task switcher:
 
 #### On Hyprland
 
-Hyprland gives you more direct control over each window than a traditional desktop like Plasma or GNOME. You do **not** need to Alt+Tab back to the app first — you can close the preview window itself.
+1. Focus the preview window (usually already focused).
+2. Press your Hyprland **close window** keybind (often `Super+Q` or similar).
 
-**Option A — Close the preview directly (simplest)**
-
-1. Make sure the SDDM preview window is focused (it usually already is, because it is fullscreen).
-2. Press your Hyprland **close window** keybind — the same shortcut you already use to close other applications.
-
-On Hyprland there is normally **no title-bar X button** like on Plasma or GNOME. Closing apps is done with keyboard shortcuts, and the exact binding is yours to configure in `hyprland.conf` (common examples: `Super + Q`, `Alt + F4`, or similar).
-
-**Option B — Leave fullscreen, then close**
-
-1. Press your Hyprland **toggle fullscreen** keybind while the preview is focused.
-2. Press your **close window** keybind.
-
-Either option stops the greeter preview and returns you to SDDM Variant Manager.
-
-Applying variants, system-wide installs, and writing SDDM config (Arch: `/usr/share/sddm/themes/`; NixOS: `/var/lib/sddm/themes/` + `/etc/sddm.conf.d/99-sddm-variant-manager.conf`) require administrator authentication via Polkit.
+Applying variants, system-wide installs, removals of system themes, and writing SDDM config require administrator authentication via Polkit.
 
 ## License
 

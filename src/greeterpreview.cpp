@@ -10,6 +10,7 @@
 #include <QFileInfo>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTemporaryFile>
@@ -36,6 +37,24 @@ QString readMetadataValue(const QString &metadataPath, const QString &key)
 
 bool copyDirectoryRecursive(const QString &source, const QString &destination)
 {
+    // Prefer cp -a: large video assets, symlinks, modes — QFile::copy is fragile.
+    const QString cp = Platform::absoluteExecutable(QStringLiteral("cp"));
+    if (!cp.isEmpty()) {
+        if (QFileInfo::exists(destination)) {
+            QDir(destination).removeRecursively();
+        }
+        QDir().mkpath(QFileInfo(destination).absolutePath());
+        QProcess process;
+        process.start(cp, {QStringLiteral("-a"), source, destination});
+        if (process.waitForStarted() && process.waitForFinished(600000) && process.exitCode() == 0
+            && QDir(destination).exists()) {
+            return true;
+        }
+        if (QFileInfo::exists(destination)) {
+            QDir(destination).removeRecursively();
+        }
+    }
+
     QDir sourceDir(source);
     if (!sourceDir.exists()) {
         return false;
@@ -43,7 +62,9 @@ bool copyDirectoryRecursive(const QString &source, const QString &destination)
 
     QDir().mkpath(destination);
 
-    QDirIterator iterator(source, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+    QDirIterator iterator(source,
+                          QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden,
+                          QDirIterator::Subdirectories);
     while (iterator.hasNext()) {
         const QString sourcePath = iterator.next();
         const QString relativePath = sourceDir.relativeFilePath(sourcePath);
@@ -105,13 +126,95 @@ bool writeConfigFileLocal(const QString &metadataPath, const QString &configFile
     return true;
 }
 
+void prependColonEnv(QProcessEnvironment *env, const QString &key, const QStringList &paths)
+{
+    if (!env || paths.isEmpty()) {
+        return;
+    }
+    QStringList merged = paths;
+    const QString existing = env->value(key);
+    if (!existing.isEmpty()) {
+        for (const QString &part : existing.split(QLatin1Char(':'))) {
+            if (!part.isEmpty() && !merged.contains(part)) {
+                merged.append(part);
+            }
+        }
+    }
+    env->insert(key, merged.join(QLatin1Char(':')));
+}
+
+QString humanizeGreeterFailure(const QString &details)
+{
+    const QString lower = details.toLower();
+    if ((lower.contains(QStringLiteral("qtquick.controls")) && lower.contains(QStringLiteral("1.")))
+        || lower.contains(QStringLiteral("controls.styles"))
+        || (lower.contains(QStringLiteral("graphicaleffects")) && lower.contains(QStringLiteral("1.")))) {
+        return QStringLiteral(
+            "Preview failed: this theme is Qt5, not Qt6 "
+            "(QtQuick.Controls 1.x / QtGraphicalEffects / Controls.Styles). "
+            "Your greeter is sddm-greeter-qt6. Prefer a Qt6 theme, or install the Qt5 greeter "
+            "(sddm-greeter) if your distro still provides it.\n\nDetails:\n%1");
+    }
+    if (lower.contains(QStringLiteral("qtmultimedia")) || lower.contains(QStringLiteral("mediaplayer"))
+        || lower.contains(QStringLiteral("videooutput"))) {
+        return QStringLiteral(
+            "Preview failed: greeter cannot load QtMultimedia (needed for video themes). "
+            "This app injects its own Qt modules for Full Preview — if it still fails, "
+            "install QtMultimedia for SDDM (NixOS: services.displayManager.sddm.extraPackages "
+            "+ kdePackages.qtmultimedia) and rebuild.\n\nDetails:\n%1");
+    }
+    if (lower.contains(QStringLiteral("qt5compat")) || lower.contains(QStringLiteral("graphicaleffects"))) {
+        return QStringLiteral(
+            "Preview failed: greeter cannot load Qt5Compat/GraphicalEffects. "
+            "On NixOS add kdePackages.qt5compat to sddm.extraPackages and rebuild.\n\nDetails:\n%1");
+    }
+    if (lower.contains(QStringLiteral("module")) && lower.contains(QStringLiteral("is not installed"))) {
+        return QStringLiteral(
+            "Preview failed: a QML module is missing for the greeter.\n\nDetails:\n%1");
+    }
+    if (details.trimmed().isEmpty()) {
+        return QStringLiteral("Preview failed (greeter exited with an error).");
+    }
+    return QStringLiteral("Preview failed: %1");
+}
+
+QString rewriteQmlImportsForQt6(QString content)
+{
+    // Order matters: match "as Alias" forms before bare imports.
+    static const QList<QPair<QRegularExpression, QString>> rules = {
+        {QRegularExpression(QStringLiteral(R"(import\s+QtGraphicalEffects\s+1\.[0-9]+)")),
+         QStringLiteral("import Qt5Compat.GraphicalEffects")},
+        {QRegularExpression(QStringLiteral(R"(import\s+QtGraphicalEffects\s*$)"),
+                            QRegularExpression::MultilineOption),
+         QStringLiteral("import Qt5Compat.GraphicalEffects")},
+        {QRegularExpression(QStringLiteral(R"(import\s+QtQuick\.Controls\s+1\.[0-9]+\s+as\s+)")),
+         QStringLiteral("import QtQuick.Controls as ")},
+        {QRegularExpression(QStringLiteral(R"(import\s+QtQuick\.Controls\s+1\.[0-9]+)")),
+         QStringLiteral("import QtQuick.Controls")},
+        {QRegularExpression(QStringLiteral(R"(import\s+QtQuick\.Controls\.Styles\s+1\.[0-9]+\s+as\s+)")),
+         QStringLiteral("import QtQuick.Controls as ")},
+        {QRegularExpression(QStringLiteral(R"(import\s+QtQuick\.Controls\.Styles\s+1\.[0-9]+)")),
+         QStringLiteral("import QtQuick.Controls")},
+        {QRegularExpression(QStringLiteral(R"(import\s+QtQuick\.Dialogs\s+1\.[0-9]+)")),
+         QStringLiteral("import QtQuick.Dialogs")},
+        {QRegularExpression(QStringLiteral(R"(import\s+QtQuick\.Layouts\s+1\.[0-9]+)")),
+         QStringLiteral("import QtQuick.Layouts")},
+        {QRegularExpression(QStringLiteral(R"(import\s+QtQuick\s+2\.[0-9]+)")),
+         QStringLiteral("import QtQuick")},
+    };
+
+    for (const auto &rule : rules) {
+        content.replace(rule.first, rule.second);
+    }
+    return content;
+}
+
 } // namespace
 
 GreeterPreview::GreeterPreview(QObject *parent)
     : QObject(parent)
 {
     connect(&m_greeterProcess, &QProcess::finished, this, &GreeterPreview::onGreeterFinished);
-    m_greeterProcess.setProcessEnvironment(QProcessEnvironment::systemEnvironment());
     m_greeterProcess.setProcessChannelMode(QProcess::MergedChannels);
 }
 
@@ -125,17 +228,113 @@ bool GreeterPreview::running() const
     return m_greeterProcess.state() != QProcess::NotRunning;
 }
 
-QString GreeterPreview::greeterBinaryForTheme(const QString &metadataPath) const
+bool GreeterPreview::themeNeedsQt5Stack(const QString &themePath)
+{
+    if (themePath.isEmpty() || !QDir(themePath).exists()) {
+        return false;
+    }
+
+    QDirIterator it(themePath, {QStringLiteral("*.qml")}, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        QFile file(it.next());
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            continue;
+        }
+        const QByteArray content = file.readAll();
+        if (content.contains("QtQuick.Controls 1.")
+            || content.contains("QtQuick.Controls.Styles")
+            || content.contains("QtGraphicalEffects 1.")
+            || content.contains("import QtGraphicalEffects\n")
+            || content.contains("import QtGraphicalEffects\r")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool GreeterPreview::modernizeThemeQmlForQt6Greeter(const QString &themeRoot)
+{
+    if (themeRoot.isEmpty() || !QDir(themeRoot).exists()) {
+        return false;
+    }
+
+    bool any = false;
+    QDirIterator it(themeRoot, {QStringLiteral("*.qml")}, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString path = it.next();
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            continue;
+        }
+        const QString original = QString::fromUtf8(file.readAll());
+        file.close();
+
+        const QString rewritten = rewriteQmlImportsForQt6(original);
+        if (rewritten == original) {
+            continue;
+        }
+
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            continue;
+        }
+        QTextStream out(&file);
+        out << rewritten;
+        file.close();
+        any = true;
+    }
+    return any;
+}
+
+QString GreeterPreview::greeterBinaryForTheme(const QString &themePath, const QString &metadataPath) const
 {
     const QString qt6Greeter = QStandardPaths::findExecutable(QStringLiteral("sddm-greeter-qt6"));
     const QString qt5Greeter = QStandardPaths::findExecutable(QStringLiteral("sddm-greeter"));
     const QString qtVersion = readMetadataValue(metadataPath, QStringLiteral("QtVersion"));
+    const bool needsQt5 = themeNeedsQt5Stack(themePath);
 
+    // Explicit Qt 6 themes always prefer the Qt6 greeter.
     if (qtVersion == QStringLiteral("6")) {
         return qt6Greeter.isEmpty() ? qt5Greeter : qt6Greeter;
     }
 
-    return qt5Greeter.isEmpty() ? qt6Greeter : qt5Greeter;
+    // Plasma/Breeze-era themes (Controls 1.x, GraphicalEffects) need the Qt5 greeter
+    // when available — otherwise we modernize imports and use Qt6.
+    if (needsQt5 && !qt5Greeter.isEmpty()) {
+        return qt5Greeter;
+    }
+
+    if (qtVersion == QStringLiteral("5") && !qt5Greeter.isEmpty()) {
+        return qt5Greeter;
+    }
+
+    if (!qt6Greeter.isEmpty()) {
+        return qt6Greeter;
+    }
+    return qt5Greeter;
+}
+
+QProcessEnvironment GreeterPreview::buildPreviewEnvironment() const
+{
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+
+    const QStringList qmlPaths = Platform::previewQmlImportPaths();
+    const QStringList pluginPaths = Platform::previewQtPluginPaths();
+
+    // Standard Qt paths + NixOS Qt6 packaging hook used by sddm-wrapped greeters.
+    prependColonEnv(&env, QStringLiteral("QML2_IMPORT_PATH"), qmlPaths);
+    prependColonEnv(&env, QStringLiteral("QML_IMPORT_PATH"), qmlPaths);
+    prependColonEnv(&env, QStringLiteral("NIXPKGS_QT6_QML_IMPORT_PATH"), qmlPaths);
+    prependColonEnv(&env, QStringLiteral("QT_PLUGIN_PATH"), pluginPaths);
+
+    if (!env.contains(QStringLiteral("AV_LOG_LEVEL"))) {
+        env.insert(QStringLiteral("AV_LOG_LEVEL"), QStringLiteral("-8"));
+    }
+    // Prefer software decode fallbacks when HW decode is broken (common on hybrid GPUs).
+    if (!env.contains(QStringLiteral("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))) {
+        env.insert(QStringLiteral("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"), QString());
+    }
+
+    return env;
 }
 
 bool GreeterPreview::backupMetadata(const QString &metadataPath)
@@ -270,7 +469,6 @@ void GreeterPreview::preview(const QString &themePath, const QString &metadataPa
     m_stoppedByUser = false;
     m_usingTempThemeCopy = false;
     m_tempThemeDir.reset();
-    // Drop leftovers from a previous failed restore before starting a new preview.
     if (!m_backupMetadataPath.isEmpty()) {
         QFile::remove(m_backupMetadataPath);
         m_backupMetadataPath.clear();
@@ -278,90 +476,62 @@ void GreeterPreview::preview(const QString &themePath, const QString &metadataPa
     m_modifiedMetadata = false;
     m_originalMetadataPath.clear();
 
-    const QString greeter = greeterBinaryForTheme(metadataPath);
-    if (greeter.isEmpty()) {
-        Q_EMIT previewFinished(false, QStringLiteral("Neither sddm-greeter nor sddm-greeter-qt6 was found."));
-        return;
-    }
-
     if (!QFile::exists(themePath)) {
         Q_EMIT previewFinished(false, QStringLiteral("Theme directory not found."));
         return;
     }
 
-    const bool modifyMetadata = !configFile.isEmpty();
-    QString previewThemePath = themePath;
-    QString previewMetadataPath = metadataPath;
-
-    if (modifyMetadata) {
-        // Read-only themes (Nix store): copy to a temp dir and edit there — no pkexec.
-        if (Platform::pathIsReadOnly(themePath) || !QFileInfo(metadataPath).isWritable()) {
-            m_tempThemeDir = std::make_unique<QTemporaryDir>();
-            if (!m_tempThemeDir->isValid()) {
-                Q_EMIT previewFinished(false, QStringLiteral("Could not create a temporary theme copy."));
-                return;
-            }
-
-            const QString tempThemePath =
-                m_tempThemeDir->path() + QDir::separator() + QFileInfo(themePath).fileName();
-            if (!copyDirectoryRecursive(themePath, tempThemePath)) {
-                m_tempThemeDir.reset();
-                Q_EMIT previewFinished(false, QStringLiteral("Could not copy theme for preview."));
-                return;
-            }
-
-            previewThemePath = tempThemePath;
-            previewMetadataPath = tempThemePath + QStringLiteral("/metadata.desktop");
-            if (!writeConfigFileLocal(previewMetadataPath, configFile)) {
-                m_tempThemeDir.reset();
-                Q_EMIT previewFinished(false, QStringLiteral("Could not set preview variant in temporary copy."));
-                return;
-            }
-
-            m_usingTempThemeCopy = true;
-            m_modifiedMetadata = true;
-            m_originalMetadataPath = previewMetadataPath;
-            m_backupMetadataPath.clear();
-        } else {
-            if (!backupMetadata(metadataPath)) {
-                Q_EMIT previewFinished(false, QStringLiteral("Could not back up metadata.desktop."));
-                return;
-            }
-
-            if (!writeConfigFileLine(metadataPath, configFile)) {
-                restoreMetadata();
-                Q_EMIT previewFinished(false, QStringLiteral("Could not set preview variant (authentication may have been cancelled)."));
-                return;
-            }
-
-            m_modifiedMetadata = true;
-        }
-    } else {
-        m_modifiedMetadata = false;
-        m_originalMetadataPath.clear();
-        m_backupMetadataPath.clear();
+    const QString greeter = greeterBinaryForTheme(themePath, metadataPath);
+    if (greeter.isEmpty()) {
+        Q_EMIT previewFinished(
+            false,
+            QStringLiteral("Neither sddm-greeter nor sddm-greeter-qt6 was found on PATH. "
+                           "Install SDDM (Arch: pacman -S sddm; NixOS: enable services.displayManager.sddm)."));
+        return;
     }
+
+    const bool modifyMetadata = !configFile.isEmpty();
+    const QString greeterName = QFileInfo(greeter).fileName();
+    const bool greeterIsQt6 = greeterName.contains(QStringLiteral("qt6"), Qt::CaseInsensitive)
+        || greeter.contains(QStringLiteral("qt6"), Qt::CaseInsensitive);
+
+    // Always work on a temp copy for Full Preview so we never mutate installed themes
+    // and can rewrite Qt5-only imports when only the Qt6 greeter is available.
+    m_tempThemeDir = std::make_unique<QTemporaryDir>();
+    if (!m_tempThemeDir->isValid()) {
+        Q_EMIT previewFinished(false, QStringLiteral("Could not create a temporary theme copy."));
+        return;
+    }
+
+    const QString tempThemePath =
+        m_tempThemeDir->path() + QDir::separator() + QFileInfo(themePath).fileName();
+    if (!copyDirectoryRecursive(themePath, tempThemePath)) {
+        m_tempThemeDir.reset();
+        Q_EMIT previewFinished(false, QStringLiteral("Could not copy theme for preview."));
+        return;
+    }
+
+    const QString previewThemePath = tempThemePath;
+    const QString previewMetadataPath = tempThemePath + QStringLiteral("/metadata.desktop");
+    if (modifyMetadata && !writeConfigFileLocal(previewMetadataPath, configFile)) {
+        m_tempThemeDir.reset();
+        Q_EMIT previewFinished(false, QStringLiteral("Could not set preview variant in temporary copy."));
+        return;
+    }
+
+    // Qt6 greeter cannot load Controls 1.x / QtGraphicalEffects — rewrite imports in the
+    // temp tree only (Layan, old Breeze forks, etc.). Qt5 greeter keeps original QML.
+    if (greeterIsQt6) {
+        modernizeThemeQmlForQt6Greeter(previewThemePath);
+    }
+
+    m_usingTempThemeCopy = true;
+    m_modifiedMetadata = modifyMetadata;
+    m_originalMetadataPath = previewMetadataPath;
+    m_backupMetadataPath.clear();
 
     m_greeterProcess.setWorkingDirectory(previewThemePath);
-
-    // The greeter needs Plasma/Breeze QML modules. When launched from nix-shell
-    // or Qt Creator, QML2_IMPORT_PATH is often too narrow and hides the system
-    // modules that SDDM themes (e.g. Breeze) import.
-    QProcessEnvironment greeterEnv = QProcessEnvironment::systemEnvironment();
-    const QString systemQml = Platform::systemQmlImportDir();
-    if (!systemQml.isEmpty()) {
-        const auto prependImportPath = [&greeterEnv, &systemQml](const QString &key) {
-            const QString existing = greeterEnv.value(key);
-            if (existing.isEmpty()) {
-                greeterEnv.insert(key, systemQml);
-            } else if (!existing.split(QLatin1Char(':')).contains(systemQml)) {
-                greeterEnv.insert(key, systemQml + QLatin1Char(':') + existing);
-            }
-        };
-        prependImportPath(QStringLiteral("QML2_IMPORT_PATH"));
-        prependImportPath(QStringLiteral("QML_IMPORT_PATH"));
-    }
-    m_greeterProcess.setProcessEnvironment(greeterEnv);
+    m_greeterProcess.setProcessEnvironment(buildPreviewEnvironment());
 
     m_greeterProcess.start(greeter,
                            {QStringLiteral("--test-mode"),
@@ -370,9 +540,7 @@ void GreeterPreview::preview(const QString &themePath, const QString &metadataPa
 
     if (!m_greeterProcess.waitForStarted(5000)) {
         const QString details = QString::fromUtf8(m_greeterProcess.readAll()).trimmed();
-        if (modifyMetadata) {
-            restoreMetadata();
-        }
+        restoreMetadata();
         Q_EMIT previewFinished(false,
                                details.isEmpty()
                                    ? QStringLiteral("Failed to start SDDM greeter preview.")
@@ -418,10 +586,9 @@ void GreeterPreview::onGreeterFinished(int exitCode, QProcess::ExitStatus status
         message = hadMetadataChanges && !usedTempCopy
                       ? QStringLiteral("Preview closed. Theme metadata restored.")
                       : QStringLiteral("Preview closed.");
-    } else if (!details.isEmpty()) {
-        message = QStringLiteral("Preview failed: %1").arg(details);
     } else {
-        message = QStringLiteral("Preview failed (exit code %1).").arg(exitCode);
+        const QString fmt = humanizeGreeterFailure(details);
+        message = fmt.contains(QStringLiteral("%1")) ? fmt.arg(details) : fmt;
     }
 
     Q_EMIT previewFinished(restored && closedNormally, message);

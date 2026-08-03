@@ -54,10 +54,12 @@ Kirigami.ApplicationWindow {
     property string statusMessage: ""
     property string themeSearchText: ""
     property string variantSearchText: ""
-    property int installTabIndex: 0
     property string localInstallPath: ""
     readonly property string closePreviewHelp: "To close the full-screen preview: press Alt+Tab, select SDDM Variant Manager, then click Close preview."
-    readonly property string appVersion: "2.0.2"
+    readonly property string appVersion: "2.1.0"
+    readonly property bool canRemoveCurrentTheme: selectedThemeIndex >= 0
+        && currentTheme.path
+        && themeInstaller.canRemoveTheme(currentTheme.path)
 
     readonly property var currentTheme: {
         variantsRevision
@@ -112,13 +114,36 @@ Kirigami.ApplicationWindow {
         }
         return n
     }
+    readonly property bool currentThemeIsSddmCurrent: {
+        variantsRevision
+        if (selectedThemeIndex < 0 || !currentTheme.id)
+            return false
+        const activeId = themeScanner.currentSddmThemeId || ""
+        if (activeId.length === 0)
+            return false
+        const path = currentTheme.path || ""
+        return currentTheme.id === activeId
+            || path.endsWith("/" + activeId)
+    }
+    readonly property bool selectionIsActive: {
+        if (!currentThemeIsSddmCurrent)
+            return false
+        if (currentThemeHasVariants)
+            return currentVariant.isActive === true
+        return true
+    }
     readonly property string activeStatusLabel: {
         if (selectedThemeIndex < 0)
             return "No theme selected"
         const themeName = currentTheme.name || currentTheme.id || "Theme"
+        if (selectionIsActive) {
+            if (currentThemeHasVariants && currentVariant.displayName)
+                return "SDDM Active: " + themeName + " · Variant: " + currentVariant.displayName
+            return "SDDM Active: " + themeName
+        }
         if (currentThemeHasVariants && currentVariant.displayName)
-            return "SDDM Active: " + themeName + " · Variant: " + currentVariant.displayName
-        return "SDDM Selected: " + themeName
+            return "Selected: " + themeName + " · " + currentVariant.displayName
+        return "Selected: " + themeName
     }
 
     function previewPathForSelection() {
@@ -193,21 +218,53 @@ Kirigami.ApplicationWindow {
     }
 
     function startFullPreview() {
+        if (selectedThemeIndex < 0 || !currentTheme.path) {
+            notify("Select a theme before opening Full Preview.")
+            return
+        }
+
+        const qtWarn = greeterCapabilities.qtCompatibilityWarning(currentTheme)
+        if (qtWarn && qtWarn.length > 0)
+            notify(qtWarn)
+
+        const advisory = greeterCapabilities.advisoryForTheme(currentTheme)
+        if (advisory && advisory.length > 0
+            && currentTheme.requiresMultimedia === true
+            && !greeterCapabilities.hasQtMultimedia
+            && greeterCapabilities.previewCanProvideMultimedia) {
+            notify("Full Preview will inject QtMultimedia from the app. Real login may still need it on the system greeter.")
+        } else if (advisory && advisory.length > 0
+                   && currentTheme.requiresMultimedia === true
+                   && !greeterCapabilities.previewCanProvideMultimedia) {
+            notify(advisory)
+        }
+
         if (currentThemeHasVariants)
-            greeterPreview.preview(currentTheme.path, currentTheme.metadataPath, currentVariant.configFile)
+            greeterPreview.preview(currentTheme.path, currentTheme.metadataPath, currentVariant.configFile || "")
         else
             greeterPreview.preview(currentTheme.path, currentTheme.metadataPath, "")
     }
 
-    function openInstallThemeSheet(tabIndex) {
-        installTabIndex = tabIndex === undefined ? 0 : tabIndex
-        if (!installThemeSheet.opened)
+    function openInstallThemeSheet() {
+        if (!installThemeSheet.visible)
             installThemeSheet.open()
     }
 
     function openLocalInstallWithPath(path) {
         localInstallPath = path
-        openInstallThemeSheet(1)
+        openInstallThemeSheet()
+    }
+
+    function requestRemoveCurrentTheme() {
+        if (!canRemoveCurrentTheme)
+            return
+        removeConfirmDialog.open()
+    }
+
+    function confirmRemoveCurrentTheme() {
+        if (!canRemoveCurrentTheme || !currentTheme.path)
+            return
+        themeInstaller.removeTheme(currentTheme.path)
     }
 
     function openThemeInFileManager() {
@@ -248,8 +305,6 @@ Kirigami.ApplicationWindow {
         ensureThemeSelection()
         if (!themeScanner.ffmpegAvailable)
             notify("Install ffmpeg for high-quality thumbnails (recommended).")
-        if (!themeInstaller.gitAvailable)
-            notify("Install git to download themes from GitHub.")
         if (greeterCapabilities.analyzed && !greeterCapabilities.hasQtMultimedia)
             notify("System SDDM greeter lacks QtMultimedia — video themes need it installed system-wide.")
     }
@@ -300,19 +355,129 @@ Kirigami.ApplicationWindow {
         target: themeInstaller
         function onInstallFinished(success, message, installedThemeIds) {
             root.notify(message)
-            if (success) {
-                installThemeSheet.close()
-                localInstallPath = ""
-                repoUrlField.text = ""
-                themeScanner.rescan()
-                if (installedThemeIds.length > 0) {
-                    const index = themeScanner.themeIndexForId(installedThemeIds[0])
-                    if (index >= 0)
-                        selectedThemeIndex = index
+            if (!success)
+                return
+
+            installThemeSheet.close()
+            localInstallPath = ""
+            root.themeSearchText = ""
+            if (themeSearchInput)
+                themeSearchInput.text = ""
+
+            themeScanner.rescan()
+
+            const ids = installedThemeIds || []
+            Qt.callLater(function() {
+                if (ids.length === 0)
+                    return
+                let index = themeScanner.themeIndexForId(ids[0])
+                if (index < 0) {
+                    themeScanner.rescan()
+                    index = themeScanner.themeIndexForId(ids[0])
+                }
+                if (index < 0) {
+                    root.notify("Installed \"" + ids[0] + "\" but it is not in the library yet. Click Refresh. "
+                                + "Expected under ~/.local/share/sddm/themes/ or the system theme dir.")
+                    return
+                }
+                root.selectedThemeIndex = index
+                const theme = themeScanner.themeAt(index)
+                const notes = greeterCapabilities.installNotesForTheme(theme)
+                if (notes && notes.length > 0)
+                    root.notify(notes)
+            })
+        }
+        function onRemoveFinished(success, message, themeId) {
+            root.notify(message)
+            if (!success)
+                return
+            root.selectedThemeIndex = -1
+            root.selectedVariantIndex = -1
+            themeScanner.rescan()
+            Qt.callLater(function() {
+                root.ensureThemeSelection()
+            })
+        }
+    }
+
+    Dialog {
+        id: removeConfirmDialog
+        title: "Remove theme?"
+        modal: true
+        anchors.centerIn: parent
+        standardButtons: Dialog.NoButton
+        width: Math.min(root.width * 0.42, 440)
+        padding: 20
+
+        background: Rectangle {
+            radius: appColors.radiusModal
+            color: appColors.surface
+            border.width: 1
+            border.color: appColors.cardBorder
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 14
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: "Delete \"" + (currentTheme.name || currentTheme.id || "this theme")
+                      + "\" from disk?\n\n"
+                      + (currentTheme.path || "")
+                      + "\n\nThis cannot be undone."
+                font.family: root.bodyFont
+                font.pixelSize: 13
+                color: appColors.surfaceFg
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Item { Layout.fillWidth: true }
+
+                Button {
+                    id: removeCancelBtn
+                    padding: 10
+                    leftPadding: 16
+                    rightPadding: 16
+                    onClicked: removeConfirmDialog.close()
+                    contentItem: Label {
+                        text: "Cancel"
+                        font.family: root.bodyFont
+                        font.pixelSize: 13
+                        color: appColors.surfaceVariantFg
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                    background: AppSecondaryChrome { control: removeCancelBtn }
+                }
+
+                Button {
+                    id: removeConfirmBtn
+                    padding: 10
+                    leftPadding: 16
+                    rightPadding: 16
+                    onClicked: {
+                        removeConfirmDialog.close()
+                        root.confirmRemoveCurrentTheme()
+                    }
+                    contentItem: Label {
+                        text: "Remove theme"
+                        font.family: root.bodyFont
+                        font.weight: Font.DemiBold
+                        font.pixelSize: 13
+                        color: "#FFFFFF"
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                    background: Rectangle {
+                        radius: appColors.radiusCard
+                        color: removeConfirmBtn.hovered ? "#9B1C1C" : appColors.danger
+                    }
                 }
             }
         }
     }
+
 
     onSelectedThemeIndexChanged: {
         selectDefaultVariantForTheme()
@@ -328,6 +493,53 @@ Kirigami.ApplicationWindow {
         asynchronous: true
         smooth: true
         mipmap: true
+    }
+
+    component AppFieldBackground: Rectangle {
+        property Item control
+        radius: appColors.radiusCard
+        color: appColors.fieldBg
+        border.width: 1
+        border.color: control && control.activeFocus ? appColors.fieldBorderFocus : appColors.fieldBorder
+        Behavior on border.color { ColorAnimation { duration: 120 } }
+    }
+
+    component AppSecondaryChrome: Rectangle {
+        property Item control
+        property bool danger: false
+        radius: appColors.radiusCard
+        color: {
+            if (!control)
+                return appColors.surface
+            if (control.down)
+                return Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.12)
+            if (control.hovered)
+                return Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.08)
+            return appColors.surface
+        }
+        border.width: 1
+        border.color: control && control.hovered ? appColors.primary : appColors.cardBorder
+        Behavior on color { ColorAnimation { duration: 120 } }
+        Behavior on border.color { ColorAnimation { duration: 120 } }
+    }
+
+    component AppCheckIndicator: Rectangle {
+        property Item control
+        implicitWidth: 18
+        implicitHeight: 18
+        radius: 4
+        color: control && control.checked ? appColors.primary : appColors.fieldBg
+        border.width: control && control.checked ? 0 : 1
+        border.color: appColors.checkboxBorder
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: 8
+            height: 8
+            radius: 2
+            color: appColors.primaryFg
+            visible: control && control.checked
+        }
     }
 
     onClosing: function(close) {
@@ -467,7 +679,7 @@ Kirigami.ApplicationWindow {
                     Rectangle {
                         visible: selectedThemeIndex >= 0
                         radius: height / 2
-                        color: appColors.badgeSuccessBg
+                        color: root.selectionIsActive ? appColors.badgeSuccessBg : appColors.secondaryContainer
                         implicitHeight: statusPill.implicitHeight + 12
                         implicitWidth: statusPill.implicitWidth + 28
 
@@ -480,7 +692,7 @@ Kirigami.ApplicationWindow {
                                 Layout.preferredWidth: 8
                                 Layout.preferredHeight: 8
                                 radius: 4
-                                color: appColors.badgeSuccessText
+                                color: root.selectionIsActive ? appColors.badgeSuccessText : appColors.surfaceVariantFg
                             }
 
                             Label {
@@ -488,7 +700,7 @@ Kirigami.ApplicationWindow {
                                 font.family: root.bodyFont
                                 font.weight: Font.DemiBold
                                 font.pixelSize: 12
-                                color: appColors.badgeSuccessText
+                                color: root.selectionIsActive ? appColors.badgeSuccessText : appColors.surfaceVariantFg
                             }
                         }
                     }
@@ -502,7 +714,7 @@ Kirigami.ApplicationWindow {
                             id: installPrimaryBtn
                             text: "Install Theme"
                             icon.name: "list-add"
-                            onClicked: root.openInstallThemeSheet(0)
+                            onClicked: root.openInstallThemeSheet()
 
                             contentItem: RowLayout {
                                 spacing: 8
@@ -510,14 +722,14 @@ Kirigami.ApplicationWindow {
                                     source: "list-add"
                                     Layout.preferredWidth: 12
                                     Layout.preferredHeight: 12
-                                    color: "white"
+                                    color: appColors.primaryFg
                                 }
                                 Label {
                                     text: "Install Theme"
                                     font.family: root.bodyFont
                                     font.weight: Font.DemiBold
                                     font.pixelSize: 13
-                                    color: "white"
+                                    color: appColors.primaryFg
                                 }
                             }
                             background: Rectangle {
@@ -528,34 +740,6 @@ Kirigami.ApplicationWindow {
                             }
                         }
 
-                        Button {
-                            id: fromFileBtn
-                            text: "From File…"
-                            onClicked: root.openInstallThemeSheet(1)
-
-                            contentItem: RowLayout {
-                                spacing: 8
-                                Kirigami.Icon {
-                                    source: "folder-open"
-                                    Layout.preferredWidth: 12
-                                    Layout.preferredHeight: 12
-                                    color: appColors.primary
-                                }
-                                Label {
-                                    text: "From File…"
-                                    font.family: root.bodyFont
-                                    font.weight: Font.Medium
-                                    font.pixelSize: 13
-                                    color: appColors.surfaceVariantFg
-                                }
-                            }
-                            background: Rectangle {
-                                radius: appColors.radiusCard
-                                color: fromFileBtn.hovered ? Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.08) : appColors.surface
-                                border.width: 1
-                                border.color: fromFileBtn.hovered ? appColors.primary : appColors.cardBorder
-                            }
-                        }
 
                         Button {
                             id: refreshBtn
@@ -648,9 +832,9 @@ Kirigami.ApplicationWindow {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 34
                                 radius: appColors.radiusCard
-                                color: appColors.surface
+                                color: appColors.fieldBg
                                 border.width: 1
-                                border.color: themeSearchInput.activeFocus ? appColors.primary : appColors.cardBorder
+                                border.color: themeSearchInput.activeFocus ? appColors.fieldBorderFocus : appColors.fieldBorder
 
                                 RowLayout {
                                     anchors.fill: parent
@@ -672,6 +856,9 @@ Kirigami.ApplicationWindow {
                                         font.family: root.bodyFont
                                         font.pixelSize: 13
                                         color: appColors.surfaceFg
+                                        placeholderTextColor: appColors.fieldPlaceholder
+                                        selectedTextColor: appColors.surfaceFg
+                                        selectionColor: appColors.fieldSelection
                                         background: Item {}
                                         onTextChanged: root.themeSearchText = text
                                     }
@@ -720,12 +907,12 @@ Kirigami.ApplicationWindow {
                                 width: parent.width - 24
                                 visible: themeScanner.themeCount === 0
                                 text: "No themes yet"
-                                explanation: "Install from GitHub, a local folder, or an archive."
+                                explanation: "Install from a local folder or an archive (zip/tar)."
                                 icon.name: "preferences-desktop-theme"
                                 helpfulAction: Kirigami.Action {
                                     text: "Install Theme"
                                     icon.name: "list-add"
-                                    onTriggered: root.openInstallThemeSheet(0)
+                                    onTriggered: root.openInstallThemeSheet()
                                 }
                             }
                         }
@@ -837,9 +1024,9 @@ Kirigami.ApplicationWindow {
                                 Layout.preferredWidth: 200
                                 Layout.preferredHeight: 34
                                 radius: appColors.radiusCard
-                                color: appColors.surface
+                                color: appColors.fieldBg
                                 border.width: 1
-                                border.color: variantSearchInput.activeFocus ? appColors.primary : appColors.cardBorder
+                                border.color: variantSearchInput.activeFocus ? appColors.fieldBorderFocus : appColors.fieldBorder
 
                                 RowLayout {
                                     anchors.fill: parent
@@ -861,6 +1048,9 @@ Kirigami.ApplicationWindow {
                                         font.family: root.bodyFont
                                         font.pixelSize: 13
                                         color: appColors.surfaceFg
+                                        placeholderTextColor: appColors.fieldPlaceholder
+                                        selectedTextColor: appColors.surfaceFg
+                                        selectionColor: appColors.fieldSelection
                                         background: Item {}
                                         onTextChanged: root.variantSearchText = text
                                     }
@@ -893,12 +1083,12 @@ Kirigami.ApplicationWindow {
                                 Layout.preferredHeight: 280
                                 visible: themeScanner.themeCount === 0
                                 text: "Welcome"
-                                explanation: "Install an SDDM theme to get started. You can use GitHub, a local folder, or an archive."
+                                explanation: "Install an SDDM theme to get started from a local folder or archive."
                                 icon.name: "preferences-desktop-theme"
                                 helpfulAction: Kirigami.Action {
                                     text: "Install Theme"
                                     icon.name: "list-add"
-                                    onTriggered: root.openInstallThemeSheet(0)
+                                    onTriggered: root.openInstallThemeSheet()
                                 }
                             }
 
@@ -938,7 +1128,7 @@ Kirigami.ApplicationWindow {
                                 readonly property int columns: Math.max(2, Math.floor(width / 230))
                                 cellWidth: Math.floor(width / columns)
                                 cellHeight: Math.floor(cellWidth * 0.78)
-                                height: Math.ceil((filteredVariants.length + 1) / columns) * cellHeight
+                                height: Math.ceil(Math.max(filteredVariants.length, 1) / columns) * cellHeight
                                 clip: false
 
                                 delegate: Item {
@@ -1002,7 +1192,7 @@ Kirigami.ApplicationWindow {
                                                             Layout.preferredWidth: 6
                                                             Layout.preferredHeight: 6
                                                             radius: 3
-                                                            color: "white"
+                                                            color: appColors.primaryFg
                                                         }
 
                                                         Label {
@@ -1011,7 +1201,7 @@ Kirigami.ApplicationWindow {
                                                             font.family: root.bodyFont
                                                             font.weight: Font.DemiBold
                                                             font.pixelSize: 11
-                                                            color: "white"
+                                                            color: appColors.primaryFg
                                                         }
                                                     }
                                                 }
@@ -1070,7 +1260,7 @@ Kirigami.ApplicationWindow {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.openInstallThemeSheet(0)
+                                    onClicked: root.openInstallThemeSheet()
                                 }
 
                                 ColumnLayout {
@@ -1224,6 +1414,24 @@ Kirigami.ApplicationWindow {
                                         }
 
                                         Label {
+                                            text: "Qt stack"
+                                            font.family: root.bodyFont
+                                            font.pixelSize: 12
+                                            color: appColors.textMuted
+                                        }
+                                        Label {
+                                            text: currentTheme.qtStack
+                                                  ? (currentTheme.qtStack + (currentTheme.requiresQt5 ? " (legacy)" : ""))
+                                                  : "—"
+                                            font.family: root.bodyFont
+                                            font.weight: Font.Medium
+                                            font.pixelSize: 12
+                                            color: currentTheme.requiresQt5 === true ? appColors.warning : appColors.surfaceFg
+                                            Layout.fillWidth: true
+                                            horizontalAlignment: Text.AlignRight
+                                        }
+
+                                        Label {
                                             text: "Needs multimedia"
                                             font.family: root.bodyFont
                                             font.pixelSize: 12
@@ -1236,7 +1444,7 @@ Kirigami.ApplicationWindow {
                                             font.pixelSize: 12
                                             color: currentTheme.requiresMultimedia === true
                                                    && !greeterCapabilities.hasQtMultimedia
-                                                   ? "#B3261E"
+                                                   ? appColors.danger
                                                    : appColors.surfaceFg
                                             Layout.fillWidth: true
                                             horizontalAlignment: Text.AlignRight
@@ -1281,8 +1489,25 @@ Kirigami.ApplicationWindow {
 
                                     Label {
                                         Layout.fillWidth: true
+                                        visible: greeterCapabilities.greeterQtMajor > 0
+                                        text: "System SDDM greeter stack: "
+                                              + greeterCapabilities.greeterQtLabel
+                                              + (greeterCapabilities.greeterBinary
+                                                 ? (" · " + greeterCapabilities.greeterBinary)
+                                                 : "")
+                                        font.family: root.bodyFont
+                                        font.pixelSize: 11
+                                        color: appColors.surfaceFg
+                                        wrapMode: Text.WordWrap
+                                        elide: Text.ElideMiddle
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
                                         visible: greeterCapabilities.isNixOS && !greeterCapabilities.hasQtMultimedia
-                                        text: "Video themes need kdePackages.qtmultimedia in services.displayManager.sddm.extraPackages, then nixos-rebuild. Themes are never rewritten."
+                                        text: greeterCapabilities.previewCanProvideMultimedia
+                                              ? "System greeter lacks QtMultimedia for real login. Full Preview injects modules from this app so you can still test video themes. For login: sddm.extraPackages += kdePackages.qtmultimedia, then nixos-rebuild."
+                                              : "Video themes need kdePackages.qtmultimedia in services.displayManager.sddm.extraPackages, then nixos-rebuild. Themes are never rewritten."
                                         font.family: root.bodyFont
                                         font.pixelSize: 11
                                         color: appColors.surfaceFg
@@ -1423,9 +1648,7 @@ Kirigami.ApplicationWindow {
                                         }
 
                                         Rectangle {
-                                            visible: selectedThemeIndex >= 0 && (
-                                                (currentThemeHasVariants && currentVariant.isActive)
-                                                || (!currentThemeHasVariants))
+                                            visible: root.selectionIsActive
                                             anchors.left: parent.left
                                             anchors.bottom: parent.bottom
                                             anchors.margins: 10
@@ -1442,7 +1665,7 @@ Kirigami.ApplicationWindow {
                                                     Layout.preferredWidth: 6
                                                     Layout.preferredHeight: 6
                                                     radius: 3
-                                                    color: "white"
+                                                    color: appColors.primaryFg
                                                 }
                                                 Label {
                                                     id: curActiveLbl
@@ -1450,7 +1673,7 @@ Kirigami.ApplicationWindow {
                                                     font.family: root.bodyFont
                                                     font.weight: Font.DemiBold
                                                     font.pixelSize: 11
-                                                    color: "white"
+                                                    color: appColors.primaryFg
                                                 }
                                             }
                                         }
@@ -1597,6 +1820,11 @@ Kirigami.ApplicationWindow {
                                         checked: root.activateInSddm
                                         onCheckedChanged: root.activateInSddm = checked
                                         Layout.alignment: Qt.AlignVCenter
+                                        indicator: AppCheckIndicator {
+                                            control: activateCheck
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                        contentItem: Item { implicitWidth: 0; implicitHeight: 18 }
                                     }
 
                                     Label {
@@ -1619,6 +1847,14 @@ Kirigami.ApplicationWindow {
                                     visible: currentThemeHasVariants && currentThemeReadOnly
                                     text: "Read-only Nix theme. Install a writable copy before applying variants."
                                     type: Kirigami.MessageType.Information
+                                }
+
+                                Kirigami.InlineMessage {
+                                    Layout.fillWidth: true
+                                    visible: selectedThemeIndex >= 0
+                                             && greeterCapabilities.themeIncompatibleWithGreeter(currentTheme)
+                                    text: greeterCapabilities.qtCompatibilityWarning(currentTheme)
+                                    type: Kirigami.MessageType.Warning
                                 }
 
                                 Kirigami.InlineMessage {
@@ -1664,20 +1900,20 @@ Kirigami.ApplicationWindow {
                                             source: "dialog-ok-apply"
                                             Layout.preferredWidth: 14
                                             Layout.preferredHeight: 14
-                                            color: "white"
+                                            color: appColors.primaryFg
                                         }
                                         Label {
                                             text: "Apply as SDDM Theme"
                                             font.family: root.bodyFont
                                             font.weight: Font.DemiBold
                                             font.pixelSize: 13
-                                            color: "white"
+                                            color: appColors.primaryFg
                                         }
                                         Item { Layout.fillWidth: true }
                                     }
                                     background: Rectangle {
                                         radius: appColors.radiusCard
-                                        color: !applyBtn.enabled ? Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.4)
+                                        color: !applyBtn.enabled ? appColors.disabledPrimary
                                              : (applyBtn.down || applyBtn.hovered ? appColors.accentHover : appColors.primary)
                                     }
                                 }
@@ -1750,6 +1986,47 @@ Kirigami.ApplicationWindow {
                                         border.color: appColors.cardBorder
                                     }
                                 }
+
+                                Button {
+                                    id: removeThemeBtn
+                                    Layout.fillWidth: true
+                                    visible: selectedThemeIndex >= 0
+                                    enabled: root.canRemoveCurrentTheme && !themeInstaller.installing
+                                    onClicked: root.requestRemoveCurrentTheme()
+                                    ToolTip.visible: hovered && !enabled && selectedThemeIndex >= 0
+                                    ToolTip.text: currentThemeReadOnly
+                                        ? "Read-only system/Nix themes cannot be deleted here"
+                                        : "This theme cannot be removed from the app"
+
+                                    contentItem: RowLayout {
+                                        spacing: 8
+                                        Item { Layout.fillWidth: true }
+                                        Kirigami.Icon {
+                                            source: "edit-delete"
+                                            Layout.preferredWidth: 14
+                                            Layout.preferredHeight: 14
+                                            color: removeThemeBtn.enabled ? appColors.danger : appColors.textMuted
+                                        }
+                                        Label {
+                                            text: "Remove Theme"
+                                            font.family: root.bodyFont
+                                            font.weight: Font.Medium
+                                            font.pixelSize: 13
+                                            color: removeThemeBtn.enabled ? appColors.danger : appColors.textMuted
+                                        }
+                                        Item { Layout.fillWidth: true }
+                                    }
+                                    background: Rectangle {
+                                        radius: appColors.radiusCard
+                                        color: !removeThemeBtn.enabled
+                                               ? "transparent"
+                                               : (removeThemeBtn.hovered
+                                                  ? appColors.dangerContainer
+                                                  : appColors.surface)
+                                        border.width: 1
+                                        border.color: removeThemeBtn.enabled ? appColors.danger : appColors.cardBorder
+                                    }
+                                }
                             }
                         }
 
@@ -1802,12 +2079,22 @@ Kirigami.ApplicationWindow {
                                     }
 
                                     ToolButton {
-                                        implicitWidth: 24
-                                        implicitHeight: 24
-                                        icon.name: "edit-copy"
+                                        id: copyCmdBtn
+                                        implicitWidth: 28
+                                        implicitHeight: 28
                                         onClicked: root.copyPreviewCommand()
                                         ToolTip.visible: hovered
                                         ToolTip.text: "Copy"
+                                        contentItem: Kirigami.Icon {
+                                            source: "edit-copy"
+                                            color: appColors.primary
+                                        }
+                                        background: Rectangle {
+                                            radius: 6
+                                            color: copyCmdBtn.hovered
+                                                   ? Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.12)
+                                                   : "transparent"
+                                        }
                                     }
                                 }
                             }
@@ -1857,79 +2144,67 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    // ── Install Modal ────────────────────────────────────────────────
-    Kirigami.OverlaySheet {
+    // ── Install Modal (Popup avoids Kirigami OverlaySheet implicitHeight loops) ──
+    Popup {
         id: installThemeSheet
-        title: "Install Theme"
-        showCloseButton: true
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        anchors.centerIn: parent
+        width: Math.min(root.width * 0.5, 540)
+        padding: 0
+        // Height follows content; cap so small windows still scroll via Flickable if needed.
+        implicitHeight: Math.min(installSheetBody.implicitHeight, root.height * 0.88)
+
+        background: Rectangle {
+            radius: appColors.radiusModal
+            color: appColors.surface
+            border.width: 1
+            border.color: appColors.cardBorder
+        }
+
+        Overlay.modal: Rectangle {
+            color: appColors.overlayScrim
+        }
 
         ColumnLayout {
-            width: parent ? parent.width : implicitWidth
-            Layout.preferredWidth: Math.min(root.width * 0.48, 520)
+            id: installSheetBody
+            width: installThemeSheet.width
             spacing: 0
 
-            // Tabs
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 0
+                Layout.leftMargin: 20
+                Layout.rightMargin: 12
+                Layout.topMargin: 16
+                Layout.bottomMargin: 12
 
-                Item {
-                    Layout.preferredWidth: githubTab.implicitWidth + 8
-                    Layout.preferredHeight: 44
-
-                    Label {
-                        id: githubTab
-                        anchors.centerIn: parent
-                        text: "GitHub URL"
-                        font.family: root.bodyFont
-                        font.weight: Font.Medium
-                        font.pixelSize: 13
-                        color: root.installTabIndex === 0 ? appColors.primary : appColors.textMuted
-                    }
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 2
-                        color: appColors.primary
-                        visible: root.installTabIndex === 0
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.installTabIndex = 0
-                    }
+                Label {
+                    Layout.fillWidth: true
+                    text: "Install Theme"
+                    font.family: root.headingFont
+                    font.weight: Font.DemiBold
+                    font.pixelSize: 16
+                    color: appColors.surfaceFg
                 }
 
-                Item {
-                    Layout.preferredWidth: fileTab.implicitWidth + 8
-                    Layout.preferredHeight: 44
-
-                    Label {
-                        id: fileTab
-                        anchors.centerIn: parent
-                        text: "File / Folder"
-                        font.family: root.bodyFont
-                        font.weight: Font.Medium
-                        font.pixelSize: 13
-                        color: root.installTabIndex === 1 ? appColors.primary : appColors.textMuted
+                ToolButton {
+                    id: installSheetCloseBtn
+                    implicitWidth: 32
+                    implicitHeight: 32
+                    onClicked: installThemeSheet.close()
+                    contentItem: Kirigami.Icon {
+                        source: "window-close"
+                        color: appColors.textMuted
                     }
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 2
-                        color: appColors.primary
-                        visible: root.installTabIndex === 1
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.installTabIndex = 1
+                    background: Rectangle {
+                        radius: 8
+                        color: installSheetCloseBtn.hovered
+                               ? Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.1)
+                               : "transparent"
                     }
                 }
-
-                Item { Layout.fillWidth: true }
             }
 
             Rectangle {
@@ -1938,40 +2213,14 @@ Kirigami.ApplicationWindow {
                 color: appColors.cardBorder
             }
 
-            StackLayout {
+            ColumnLayout {
                 Layout.fillWidth: true
-                Layout.topMargin: 16
-                currentIndex: root.installTabIndex
+                Layout.margins: 20
+                spacing: 0
 
                 ColumnLayout {
-                    spacing: 8
-
-                    Label {
-                        text: "Repository URL (HTTPS or SSH)"
-                        font.family: root.bodyFont
-                        font.pixelSize: 12
-                        color: appColors.textMuted
-                    }
-
-                    TextField {
-                        id: repoUrlField
-                        Layout.fillWidth: true
-                        placeholderText: "https://github.com/user/sddm-theme-name"
-                        font.family: root.bodyFont
-                        font.pixelSize: 13
-                    }
-
-                    Label {
-                        Layout.fillWidth: true
-                        wrapMode: Text.Wrap
-                        text: "Supports HTTPS clone URLs and SSH git@github.com: URLs."
-                        font.family: root.bodyFont
-                        font.pixelSize: 11
-                        color: appColors.textMuted
-                    }
-                }
-
-                ColumnLayout {
+                    id: fileTabBody
+                    Layout.fillWidth: true
                     spacing: 12
 
                     Rectangle {
@@ -2010,7 +2259,7 @@ Kirigami.ApplicationWindow {
 
                             Label {
                                 Layout.alignment: Qt.AlignHCenter
-                                text: "Drop theme archive here"
+                                text: "Drop theme archive or folder here"
                                 font.family: root.headingFont
                                 font.weight: Font.DemiBold
                                 font.pixelSize: 14
@@ -2030,14 +2279,46 @@ Kirigami.ApplicationWindow {
                                 spacing: 8
 
                                 Button {
-                                    text: "Choose Archive…"
-                                    icon.name: "document-open"
+                                    id: chooseArchiveBtn
+                                    padding: 10
                                     onClicked: archiveFileDialog.open()
+                                    contentItem: RowLayout {
+                                        spacing: 6
+                                        Kirigami.Icon {
+                                            source: "document-open"
+                                            Layout.preferredWidth: 14
+                                            Layout.preferredHeight: 14
+                                            color: appColors.primary
+                                        }
+                                        Label {
+                                            text: "Choose Archive…"
+                                            font.family: root.bodyFont
+                                            font.pixelSize: 12
+                                            color: appColors.surfaceFg
+                                        }
+                                    }
+                                    background: AppSecondaryChrome { control: chooseArchiveBtn }
                                 }
                                 Button {
-                                    text: "Choose Folder…"
-                                    icon.name: "folder-open"
+                                    id: chooseFolderBtn
+                                    padding: 10
                                     onClicked: themeFolderDialog.open()
+                                    contentItem: RowLayout {
+                                        spacing: 6
+                                        Kirigami.Icon {
+                                            source: "folder-open"
+                                            Layout.preferredWidth: 14
+                                            Layout.preferredHeight: 14
+                                            color: appColors.primary
+                                        }
+                                        Label {
+                                            text: "Choose Folder…"
+                                            font.family: root.bodyFont
+                                            font.pixelSize: 12
+                                            color: appColors.surfaceFg
+                                        }
+                                    }
+                                    background: AppSecondaryChrome { control: chooseFolderBtn }
                                 }
                             }
                         }
@@ -2046,91 +2327,126 @@ Kirigami.ApplicationWindow {
                     TextField {
                         id: localPathField
                         Layout.fillWidth: true
+                        Layout.preferredHeight: 38
                         text: root.localInstallPath
                         placeholderText: "/path/to/theme-or-archive.zip"
                         font.family: root.bodyFont
                         font.pixelSize: 12
+                        color: appColors.surfaceFg
+                        placeholderTextColor: appColors.fieldPlaceholder
+                        selectedTextColor: appColors.surfaceFg
+                        selectionColor: appColors.fieldSelection
+                        leftPadding: 12
+                        rightPadding: 12
+                        background: AppFieldBackground { control: localPathField }
                         onTextEdited: root.localInstallPath = text
                     }
                 }
-            }
 
-            CheckBox {
-                id: systemWideCheck
-                Layout.topMargin: 16
-                text: "Install system-wide — requires admin password"
-                font.family: root.bodyFont
-            }
-
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                text: "User install: ~/.local/share/sddm/themes/. System-wide: /var/lib/sddm/themes/ (NixOS) or /usr/share/sddm/themes/."
-                font.family: root.bodyFont
-                font.pixelSize: 11
-                color: appColors.textMuted
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: 12
-                spacing: 8
-
-                Item { Layout.fillWidth: true }
-
-                Button {
-                    text: "Cancel"
-                    onClicked: installThemeSheet.close()
-                }
-
-                Button {
-                    id: installConfirmBtn
-                    text: themeInstaller.installing ? "Installing…" : "Install"
-                    enabled: {
-                        if (themeInstaller.installing)
-                            return false
-                        if (root.installTabIndex === 0)
-                            return repoUrlField.text.trim().length > 0
-                        return root.localInstallPath.trim().length > 0
+                CheckBox {
+                    id: systemWideCheck
+                    Layout.topMargin: 16
+                    text: "Install system-wide — requires admin password"
+                    font.family: root.bodyFont
+                    spacing: 10
+                    indicator: AppCheckIndicator {
+                        control: systemWideCheck
+                        anchors.verticalCenter: parent.verticalCenter
                     }
-                    onClicked: {
-                        if (root.installTabIndex === 0)
-                            themeInstaller.installFromUrl(repoUrlField.text.trim(), systemWideCheck.checked)
-                        else
-                            themeInstaller.installFromLocalPath(root.localInstallPath.trim(), systemWideCheck.checked)
-                    }
-
                     contentItem: Label {
-                        text: installConfirmBtn.text
+                        text: systemWideCheck.text
                         font.family: root.bodyFont
-                        font.weight: Font.DemiBold
                         font.pixelSize: 13
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
+                        color: appColors.surfaceFg
+                        leftPadding: systemWideCheck.indicator.width + systemWideCheck.spacing
                         verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        radius: appColors.radiusCard
-                        color: !installConfirmBtn.enabled ? Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.4)
-                             : (installConfirmBtn.hovered ? appColors.accentHover : appColors.primary)
+                        wrapMode: Text.WordWrap
                     }
                 }
-            }
 
-            BusyIndicator {
-                Layout.alignment: Qt.AlignHCenter
-                running: themeInstaller.installing
-                visible: running
-            }
+                Label {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 8
+                    wrapMode: Text.Wrap
+                    text: "User install: ~/.local/share/sddm/themes/. System-wide: /var/lib/sddm/themes/ (NixOS) or /usr/share/sddm/themes/."
+                    font.family: root.bodyFont
+                    font.pixelSize: 11
+                    color: appColors.textMuted
+                }
 
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                visible: themeInstaller.progressMessage.length > 0
-                text: themeInstaller.progressMessage
-                font.family: root.bodyFont
-                font.pixelSize: 12
-                color: appColors.surfaceVariantFg
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 16
+                    spacing: 8
+
+                    Item { Layout.fillWidth: true }
+
+                    Button {
+                        id: installCancelBtn
+                        padding: 12
+                        leftPadding: 18
+                        rightPadding: 18
+                        onClicked: installThemeSheet.close()
+                        contentItem: Label {
+                            text: "Cancel"
+                            font.family: root.bodyFont
+                            font.pixelSize: 13
+                            color: appColors.surfaceVariantFg
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        background: AppSecondaryChrome { control: installCancelBtn }
+                    }
+
+                    Button {
+                        id: installConfirmBtn
+                        padding: 12
+                        leftPadding: 20
+                        rightPadding: 20
+                        text: themeInstaller.installing ? "Installing…" : "Install"
+                        enabled: {
+                            if (themeInstaller.installing)
+                                return false
+                            return root.localInstallPath.trim().length > 0
+                        }
+                        onClicked: {
+                            themeInstaller.installFromLocalPath(root.localInstallPath.trim(), systemWideCheck.checked)
+                        }
+
+                        contentItem: Label {
+                            text: installConfirmBtn.text
+                            font.family: root.bodyFont
+                            font.weight: Font.DemiBold
+                            font.pixelSize: 13
+                            color: appColors.primaryFg
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        background: Rectangle {
+                            radius: appColors.radiusCard
+                            color: !installConfirmBtn.enabled ? appColors.disabledPrimary
+                                 : (installConfirmBtn.hovered ? appColors.accentHover : appColors.primary)
+                        }
+                    }
+                }
+
+                BusyIndicator {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.topMargin: 8
+                    running: themeInstaller.installing
+                    visible: running
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    Layout.bottomMargin: 4
+                    wrapMode: Text.Wrap
+                    visible: themeInstaller.progressMessage.length > 0
+                    text: themeInstaller.progressMessage
+                    font.family: root.bodyFont
+                    font.pixelSize: 12
+                    color: appColors.surfaceVariantFg
+                }
             }
         }
     }
