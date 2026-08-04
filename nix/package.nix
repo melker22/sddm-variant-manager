@@ -52,6 +52,10 @@ stdenv.mkDerivation {
     kdePackages.karchive
     kdePackages.extra-cmake-modules
     kdePackages.qqc2-desktop-style
+    # Freedesktop icons used by Kirigami.Icon (list-add, view-refresh, …).
+    # Explicit so Hyprland/non-Plasma sessions still resolve UI icons when the
+    # active GTK icon theme is missing or incomplete.
+    kdePackages.breeze-icons
     gsettings-desktop-schemas
     gtk3
     glib
@@ -63,10 +67,12 @@ stdenv.mkDerivation {
 
   # ffmpeg for video thumbnails; GSettings schemas so GTK file dialogs do not SIGABRT.
   # Schemas live under share/gsettings-schemas/<pkg>/glib-2.0/schemas on Nix.
+  # breeze-icons on XDG_DATA_DIRS so QIcon fallback theme "breeze" is always found.
   qtWrapperArgs = [
     "--prefix PATH : ${lib.makeBinPath [ ffmpeg ]}"
     "--prefix XDG_DATA_DIRS : ${gsettings-desktop-schemas}/share"
     "--prefix XDG_DATA_DIRS : ${gtk3}/share"
+    "--prefix XDG_DATA_DIRS : ${kdePackages.breeze-icons}/share"
     "--prefix GSETTINGS_SCHEMA_DIR : ${gsettings-desktop-schemas}/share/gsettings-schemas/${gsettings-desktop-schemas.name}/glib-2.0/schemas"
     "--prefix GSETTINGS_SCHEMA_DIR : ${gtk3}/share/gsettings-schemas/${gtk3.name}/glib-2.0/schemas"
   ];

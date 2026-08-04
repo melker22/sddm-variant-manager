@@ -169,6 +169,57 @@ QIcon loadApplicationIcon()
     return loadBundledIcon();
 }
 
+/**
+ * Kirigami.Icon / QIcon::fromTheme need a Freedesktop icon theme (Breeze, etc.).
+ * On Plasma that is always present. On Hyprland/other WMs, QT_QPA_PLATFORMTHEME=gtk3
+ * follows the GTK icon theme — if that theme is missing from XDG_DATA_DIRS (or
+ * points at Papirus/Adwaita without those packages), every UI icon vanishes even
+ * though the app palette (light/dark) is fine.
+ *
+ * Always register Breeze as fallback (shipped via KF6/breeze-icons on Nix and
+ * usually installed with Plasma tools). If the active theme still cannot resolve
+ * a probe icon used in Main.qml, switch the primary theme to Breeze.
+ */
+void ensureFreedesktopIconTheme()
+{
+    const auto themeResolvesUiIcons = []() {
+        return !QIcon::fromTheme(QStringLiteral("view-refresh")).isNull()
+            && !QIcon::fromTheme(QStringLiteral("list-add")).isNull()
+            && !QIcon::fromTheme(QStringLiteral("edit-find")).isNull();
+    };
+
+    // Prefer an explicit fallback so symbolic icons recolor correctly in light
+    // and dark app palettes even when the session theme is incomplete.
+    if (QIcon::fallbackThemeName().isEmpty()) {
+        QIcon::setFallbackThemeName(QStringLiteral("breeze"));
+    }
+
+    if (themeResolvesUiIcons()) {
+        return;
+    }
+
+    const QString previous = QIcon::themeName();
+    for (const QString &candidate : {
+             QStringLiteral("breeze"),
+             QStringLiteral("breeze-dark"),
+             QStringLiteral("Adwaita"),
+         }) {
+        QIcon::setThemeName(candidate);
+        if (themeResolvesUiIcons()) {
+            qInfo().noquote() << "Icon theme" << previous
+                              << "missing Freedesktop icons; using" << candidate;
+            return;
+        }
+    }
+
+    if (!previous.isEmpty()) {
+        QIcon::setThemeName(previous);
+    }
+    qWarning().noquote()
+        << "Freedesktop UI icons could not be resolved. Install breeze-icons "
+           "(or ensure your GTK icon theme is on XDG_DATA_DIRS).";
+}
+
 void applyWindowIcon(QWindow *window)
 {
     const QIcon icon = loadApplicationIcon();
@@ -404,6 +455,9 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationVersion(QStringLiteral("2.1.0"));
     QGuiApplication::setQuitOnLastWindowClosed(true);
     QGuiApplication::setDesktopFileName(QString::fromUtf8(kAppIconName));
+
+    // After QGuiApplication exists so platform theme / XDG paths are known.
+    ensureFreedesktopIconTheme();
 
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 

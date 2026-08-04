@@ -1107,7 +1107,8 @@ Kirigami.ApplicationWindow {
                                 visible: themeScanner.themeCount > 0 && selectedThemeIndex >= 0 && !currentThemeHasVariants
                                 text: "This theme has no background variants."
                                 explanation: "Use the Inspector on the right to apply it or open a full SDDM preview."
-                                icon.name: "image"
+                                // image-x-generic exists in Breeze; bare "image" often fails outside Plasma.
+                                icon.name: "image-x-generic"
                             }
 
                             Kirigami.PlaceholderMessage {
