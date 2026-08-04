@@ -15,6 +15,9 @@ depends=(
   'kcoreaddons'
   'ki18n'
   'karchive'
+  # Freedesktop icons for Kirigami.Icon (list-add, view-refresh, …) on
+  # Hyprland/Sway/i3 and other non-Plasma sessions without a full icon theme.
+  'breeze-icons'
   'sddm'
   'polkit'
 )
