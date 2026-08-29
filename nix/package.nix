@@ -7,6 +7,7 @@
   qt6,
   kdePackages,
   ffmpeg,
+  git,
   gsettings-desktop-schemas,
   gtk3,
   glib,
@@ -14,7 +15,7 @@
 
 stdenv.mkDerivation {
   pname = "sddm-variant-manager";
-  version = "2.2.0";
+  version = "2.3.0";
 
   src = lib.cleanSourceWith {
     src = ../.;
@@ -65,11 +66,12 @@ stdenv.mkDerivation {
     "-DCMAKE_BUILD_TYPE=Release"
   ];
 
-  # ffmpeg for video thumbnails; GSettings schemas so GTK file dialogs do not SIGABRT.
+  # ffmpeg for video thumbnails; git for experimental GitHub theme clone.
+  # GSettings schemas so GTK file dialogs do not SIGABRT.
   # Schemas live under share/gsettings-schemas/<pkg>/glib-2.0/schemas on Nix.
   # breeze-icons on XDG_DATA_DIRS so QIcon fallback theme "breeze" is always found.
   qtWrapperArgs = [
-    "--prefix PATH : ${lib.makeBinPath [ ffmpeg ]}"
+    "--prefix PATH : ${lib.makeBinPath [ ffmpeg git ]}"
     "--prefix XDG_DATA_DIRS : ${gsettings-desktop-schemas}/share"
     "--prefix XDG_DATA_DIRS : ${gtk3}/share"
     "--prefix XDG_DATA_DIRS : ${kdePackages.breeze-icons}/share"

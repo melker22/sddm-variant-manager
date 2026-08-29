@@ -1,6 +1,6 @@
 # Maintainer: Melker Halberd Pereira Alves <melker168@gmail.com>
 pkgname=sddm-variant-manager
-pkgver=2.2.0
+pkgver=2.3.0
 pkgrel=1
 pkgdesc="Browse, preview, apply, install, and remove SDDM login theme variants"
 arch=('x86_64')
@@ -28,6 +28,7 @@ makedepends=(
 )
 optdepends=(
   'ffmpeg: high-quality variant thumbnails from video backgrounds'
+  'git: experimental GitHub theme clone (Install Theme → GitHub)'
   'qt6-wayland: Wayland sessions (Hyprland, Sway, Plasma Wayland)'
   'qt6-5compat: older themes that need GraphicalEffects via Qt5Compat'
   'qt6-multimedia: video backgrounds in the real SDDM greeter'

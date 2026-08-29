@@ -11,6 +11,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QMetaObject>
 #include <QProcess>
 #include <QRegularExpression>
@@ -68,6 +69,539 @@ bool ThemeInstaller::installing() const
 QString ThemeInstaller::progressMessage() const
 {
     return m_progressMessage;
+}
+
+bool ThemeInstaller::gitAvailable() const
+{
+    return !Platform::absoluteExecutable(QStringLiteral("git")).isEmpty();
+}
+
+bool ThemeInstaller::normalizeGitHubUrl(const QString &input, QString *normalizedUrl, QString *error)
+{
+    const QString trimmed = input.trimmed();
+    if (trimmed.isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("Enter a GitHub repository URL.");
+        }
+        return false;
+    }
+
+    if (trimmed.startsWith(QStringLiteral("git@github.com:"))) {
+        static const QRegularExpression sshPattern(
+            QStringLiteral(R"(^git@github\.com:([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$)"));
+        const QRegularExpressionMatch match = sshPattern.match(trimmed);
+        if (!match.hasMatch()) {
+            if (error) {
+                *error = QStringLiteral("Invalid SSH GitHub URL. Example: git@github.com:user/repo.git");
+            }
+            return false;
+        }
+        if (normalizedUrl) {
+            *normalizedUrl = QStringLiteral("https://github.com/%1/%2.git")
+                                 .arg(match.captured(1), match.captured(2));
+        }
+        return true;
+    }
+
+    QUrl url(trimmed);
+    if (!url.isValid() || url.host().toLower() != QStringLiteral("github.com")) {
+        if (error) {
+            *error = QStringLiteral("Only public GitHub repositories are supported.");
+        }
+        return false;
+    }
+
+    const QStringList parts = url.path().split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    if (parts.size() < 2) {
+        if (error) {
+            *error = QStringLiteral("Invalid GitHub repository URL.");
+        }
+        return false;
+    }
+
+    QString repo = parts.at(1);
+    if (repo.endsWith(QStringLiteral(".git"))) {
+        repo.chop(4);
+    }
+
+    if (normalizedUrl) {
+        *normalizedUrl = QStringLiteral("https://github.com/%1/%2.git").arg(parts.constFirst(), repo);
+    }
+    return true;
+}
+
+namespace {
+
+QString stripShellComment(const QString &line)
+{
+    QString out;
+    out.reserve(line.size());
+    bool inSingle = false;
+    bool inDouble = false;
+    for (int i = 0; i < line.size(); ++i) {
+        const QChar c = line.at(i);
+        if (c == QLatin1Char('\\') && inDouble && i + 1 < line.size()) {
+            out += c;
+            out += line.at(i + 1);
+            ++i;
+            continue;
+        }
+        if (c == QLatin1Char('\'') && !inDouble) {
+            inSingle = !inSingle;
+            out += c;
+            continue;
+        }
+        if (c == QLatin1Char('"') && !inSingle) {
+            inDouble = !inDouble;
+            out += c;
+            continue;
+        }
+        if (c == QLatin1Char('#') && !inSingle && !inDouble) {
+            break;
+        }
+        out += c;
+    }
+    return out.trimmed();
+}
+
+QString unquoteToken(QString token)
+{
+    if (token.size() >= 2) {
+        const QChar a = token.front();
+        const QChar b = token.back();
+        if ((a == QLatin1Char('"') && b == QLatin1Char('"'))
+            || (a == QLatin1Char('\'') && b == QLatin1Char('\''))) {
+            token = token.mid(1, token.size() - 2);
+        }
+    }
+    return token;
+}
+
+QStringList tokenizeShell(const QString &line)
+{
+    QStringList tokens;
+    QString current;
+    bool inSingle = false;
+    bool inDouble = false;
+    for (int i = 0; i < line.size(); ++i) {
+        const QChar c = line.at(i);
+        if (c == QLatin1Char('\\') && inDouble && i + 1 < line.size()) {
+            current += line.at(i + 1);
+            ++i;
+            continue;
+        }
+        if (c == QLatin1Char('\'') && !inDouble) {
+            inSingle = !inSingle;
+            current += c;
+            continue;
+        }
+        if (c == QLatin1Char('"') && !inSingle) {
+            inDouble = !inDouble;
+            current += c;
+            continue;
+        }
+        if (!inSingle && !inDouble && c.isSpace()) {
+            if (!current.isEmpty()) {
+                tokens.append(unquoteToken(current));
+                current.clear();
+            }
+            continue;
+        }
+        current += c;
+    }
+    if (!current.isEmpty()) {
+        tokens.append(unquoteToken(current));
+    }
+    return tokens;
+}
+
+QString expandScriptToken(QString token, const QHash<QString, QString> &vars, const QString &cloneRoot)
+{
+    token.replace(QStringLiteral("${HOME}"), QDir::homePath());
+    token.replace(QStringLiteral("$HOME"), QDir::homePath());
+    token.replace(QStringLiteral("${PWD}"), cloneRoot);
+    token.replace(QStringLiteral("$PWD"), cloneRoot);
+    token.replace(QStringLiteral("$(pwd)"), cloneRoot);
+    token.replace(QStringLiteral("`pwd`"), cloneRoot);
+    if (token.startsWith(QStringLiteral("~/"))) {
+        token = QDir::homePath() + token.mid(1);
+    } else if (token == QLatin1Char('~')) {
+        token = QDir::homePath();
+    }
+
+    for (auto it = vars.constBegin(); it != vars.constEnd(); ++it) {
+        token.replace(QLatin1Char('$') + it.key(), it.value());
+        token.replace(QStringLiteral("${") + it.key() + QLatin1Char('}'), it.value());
+    }
+    return token;
+}
+
+bool looksLikePathToken(const QString &token)
+{
+    if (token.isEmpty()) {
+        return false;
+    }
+    return token.startsWith(QLatin1Char('/'))
+        || token.startsWith(QLatin1Char('~'))
+        || token.startsWith(QLatin1Char('.'))
+        || token.startsWith(QLatin1Char('$'))
+        || token.contains(QStringLiteral("/"));
+}
+
+bool isCanonicalSddmThemeDest(const QString &dest)
+{
+    const QString cleaned = QDir::cleanPath(dest);
+    return cleaned.contains(QStringLiteral("/sddm/themes"));
+}
+
+bool isCopyLikeCommand(const QString &cmd)
+{
+    return cmd == QLatin1String("cp")
+        || cmd == QLatin1String("rsync")
+        || cmd == QLatin1String("mv")
+        || cmd == QLatin1String("install");
+}
+
+QString resolveCloneRelative(const QString &token, const QString &cloneRoot)
+{
+    if (token.isEmpty() || token == QLatin1String("*") || token.contains(QLatin1Char('*'))) {
+        return cloneRoot;
+    }
+    if (token == QLatin1String(".") || token == QLatin1String("./")) {
+        return QFileInfo(cloneRoot).absoluteFilePath();
+    }
+    const QFileInfo info(token);
+    if (info.isAbsolute()) {
+        return QDir::cleanPath(token);
+    }
+    return QDir::cleanPath(cloneRoot + QLatin1Char('/') + token);
+}
+
+QStringList findInstallScriptPaths(const QString &cloneRoot)
+{
+    QStringList found;
+    const QStringList preferred = {
+        QStringLiteral("install.sh"),
+        QStringLiteral("Install.sh"),
+        QStringLiteral("install-sddm.sh"),
+        QStringLiteral("scripts/install.sh"),
+    };
+    for (const QString &rel : preferred) {
+        const QString path = cloneRoot + QLatin1Char('/') + rel;
+        if (QFileInfo::exists(path) && QFileInfo(path).isFile()) {
+            found.append(QFileInfo(path).absoluteFilePath());
+        }
+    }
+
+    QDirIterator iterator(cloneRoot, QDir::Files, QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+        iterator.next();
+        const QFileInfo info = iterator.fileInfo();
+        const QString abs = info.absoluteFilePath();
+        if (abs.contains(QStringLiteral("/.git/"))) {
+            continue;
+        }
+        const QString name = info.fileName();
+        if (name.compare(QStringLiteral("install.sh"), Qt::CaseInsensitive) == 0
+            || name.compare(QStringLiteral("install-sddm.sh"), Qt::CaseInsensitive) == 0) {
+            if (!found.contains(abs)) {
+                found.append(abs);
+            }
+        }
+    }
+    return found;
+}
+
+} // namespace
+
+ThemeInstaller::InstallScriptReport ThemeInstaller::analyzeInstallScripts(const QString &cloneRoot)
+{
+    InstallScriptReport report;
+    if (cloneRoot.isEmpty() || !QDir(cloneRoot).exists()) {
+        return report;
+    }
+
+    const QStringList scripts = findInstallScriptPaths(cloneRoot);
+    if (scripts.isEmpty()) {
+        return report;
+    }
+
+    for (const QString &scriptPath : scripts) {
+        QFile file(scriptPath);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            continue;
+        }
+
+        QHash<QString, QString> vars;
+        QTextStream in(&file);
+        while (!in.atEnd()) {
+            const QString raw = stripShellComment(in.readLine());
+            if (raw.isEmpty()) {
+                continue;
+            }
+
+            static const QRegularExpression assign(
+                QStringLiteral(R"(^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.+)$)"));
+            const QRegularExpressionMatch assignMatch = assign.match(raw);
+            if (assignMatch.hasMatch()) {
+                const QString key = assignMatch.captured(1);
+                QString value = expandScriptToken(unquoteToken(assignMatch.captured(2).trimmed()), vars, cloneRoot);
+                vars.insert(key, value);
+                if (isCanonicalSddmThemeDest(value) || looksLikePathToken(value)) {
+                    if (report.scriptDestination.isEmpty()
+                        && (isCanonicalSddmThemeDest(value) || value.startsWith(QLatin1Char('/')))) {
+                        report.scriptDestination = value;
+                    }
+                }
+                continue;
+            }
+
+            QStringList tokens = tokenizeShell(raw);
+            if (tokens.isEmpty()) {
+                continue;
+            }
+            if (tokens.constFirst() == QLatin1String("sudo") && tokens.size() > 1) {
+                tokens.removeFirst();
+            }
+            if (tokens.isEmpty() || !isCopyLikeCommand(tokens.constFirst())) {
+                continue;
+            }
+
+            const QString cmd = tokens.takeFirst();
+            QStringList positionals;
+            bool directoryOnly = false;
+            for (const QString &token : tokens) {
+                if (token.startsWith(QLatin1Char('-'))) {
+                    if (cmd == QLatin1String("install")
+                        && (token == QLatin1String("-d") || token.startsWith(QLatin1String("-dm")))) {
+                        directoryOnly = true;
+                    }
+                    continue;
+                }
+                positionals.append(expandScriptToken(token, vars, cloneRoot));
+            }
+            if (directoryOnly || positionals.size() < 2) {
+                continue;
+            }
+
+            const QString dest = positionals.takeLast();
+            if (!looksLikePathToken(dest)) {
+                continue;
+            }
+
+            if (report.scriptDestination.isEmpty()) {
+                report.scriptDestination = dest;
+            }
+            if (!isCanonicalSddmThemeDest(dest) && dest.startsWith(QLatin1Char('/'))) {
+                report.unusualDestination = true;
+            }
+
+            for (const QString &srcToken : positionals) {
+                const QString source = resolveCloneRelative(srcToken, cloneRoot);
+                const QString cloneAbs = QFileInfo(cloneRoot).absoluteFilePath();
+                if (source != cloneAbs && !source.startsWith(cloneAbs + QLatin1Char('/'))) {
+                    // Refuse sources outside the clone (script trying to copy /etc, etc.).
+                    continue;
+                }
+                if (isValidThemeRoot(source)) {
+                    if (!report.themeRoots.contains(source)) {
+                        report.themeRoots.append(source);
+                    }
+                } else if (isValidThemeRoot(cloneRoot) && (srcToken == QLatin1String(".") || srcToken == QLatin1String("./"))) {
+                    if (!report.themeRoots.contains(QFileInfo(cloneRoot).absoluteFilePath())) {
+                        report.themeRoots.append(QFileInfo(cloneRoot).absoluteFilePath());
+                    }
+                }
+            }
+        }
+
+        if (report.usedScript || !report.themeRoots.isEmpty() || !report.scriptDestination.isEmpty()) {
+            report.scriptPath = scriptPath;
+            report.usedScript = !report.themeRoots.isEmpty();
+            if (!report.themeRoots.isEmpty()) {
+                break;
+            }
+        }
+    }
+
+    if (!report.scriptDestination.isEmpty() && !isCanonicalSddmThemeDest(report.scriptDestination)) {
+        report.unusualDestination = true;
+    }
+
+    return report;
+}
+
+bool ThemeInstaller::installDiscoveredThemes(const QStringList &themeRoots,
+                                             bool systemWide,
+                                             const QString &nameHint,
+                                             QStringList *installedIds,
+                                             QStringList *installedPaths,
+                                             QString *error)
+{
+    const QString installBase = systemWide ? Platform::writableSystemThemeDir() : Platform::userThemeDir();
+    QString prepareError;
+    if (!prepareInstallBase(installBase, systemWide, &prepareError)) {
+        if (error) {
+            *error = prepareError;
+        }
+        return false;
+    }
+
+    for (const QString &themeRoot : themeRoots) {
+        const QString folderName = resolveInstallFolderName(themeRoot, nameHint);
+        const QString destination = uniqueInstallPath(installBase, folderName);
+        if (destination.isEmpty()) {
+            if (error) {
+                *error = QStringLiteral("Could not choose a destination folder for %1.").arg(folderName);
+            }
+            return false;
+        }
+
+        QMetaObject::invokeMethod(this, [this, folderName]() {
+            setProgressMessage(QStringLiteral("Installing %1…").arg(folderName));
+        }, Qt::QueuedConnection);
+
+        QString installError;
+        if (!installDirectory(themeRoot, destination, systemWide, &installError)) {
+            if (error) {
+                *error = installError.isEmpty()
+                             ? QStringLiteral("Failed to install %1.").arg(folderName)
+                             : installError;
+            }
+            return false;
+        }
+
+        if (installedIds) {
+            installedIds->append(QFileInfo(destination).fileName());
+        }
+        if (installedPaths) {
+            installedPaths->append(destination);
+        }
+    }
+
+    return true;
+}
+
+bool ThemeInstaller::installFromUrl(const QString &url, bool systemWide)
+{
+    if (m_installing) {
+        Q_EMIT installFinished(false, QStringLiteral("An installation is already in progress."), {});
+        return false;
+    }
+
+    if (!gitAvailable()) {
+        Q_EMIT installFinished(false,
+                               QStringLiteral("git is not installed. Install it with your package manager "
+                                              "(e.g. nix profile add nixpkgs#git, pacman -S git)."),
+                               {});
+        return false;
+    }
+
+    QString normalizedUrl;
+    QString validationError;
+    if (!normalizeGitHubUrl(url, &normalizedUrl, &validationError)) {
+        Q_EMIT installFinished(false, validationError, {});
+        return false;
+    }
+
+    beginInstallJob();
+
+    (void)QtConcurrent::run([this, normalizedUrl, systemWide]() {
+        QStringList installedThemeIds;
+        QStringList installedPaths;
+
+        auto finish = [this, &installedThemeIds](bool success, const QString &message) {
+            QMetaObject::invokeMethod(this, [this, success, message, installedThemeIds]() {
+                setInstalling(false);
+                setProgressMessage(success ? QStringLiteral("Installation finished.") : message);
+                Q_EMIT installFinished(success, message, installedThemeIds);
+            }, Qt::QueuedConnection);
+        };
+
+        QTemporaryDir tempDir;
+        if (!tempDir.isValid()) {
+            finish(false, QStringLiteral("Could not create a temporary directory."));
+            return;
+        }
+
+        QMetaObject::invokeMethod(this, [this]() {
+            setProgressMessage(QStringLiteral("Cloning repository…"));
+        }, Qt::QueuedConnection);
+
+        const QString git = Platform::absoluteExecutable(QStringLiteral("git"));
+        QProcess cloneProcess;
+        cloneProcess.start(git,
+                           {QStringLiteral("clone"), QStringLiteral("--depth"), QStringLiteral("1"),
+                            normalizedUrl, tempDir.path()});
+        if (!cloneProcess.waitForFinished(180000) || cloneProcess.exitCode() != 0) {
+            const QString details = QString::fromUtf8(cloneProcess.readAllStandardError()).trimmed();
+            finish(false,
+                   details.isEmpty() ? QStringLiteral("git clone failed.")
+                                     : QStringLiteral("git clone failed: %1").arg(details));
+            return;
+        }
+
+        QMetaObject::invokeMethod(this, [this]() {
+            setProgressMessage(QStringLiteral("Reading install scripts…"));
+        }, Qt::QueuedConnection);
+
+        const InstallScriptReport report = analyzeInstallScripts(tempDir.path());
+        QStringList themeRoots = report.themeRoots;
+        QString methodNote;
+        if (!themeRoots.isEmpty()) {
+            methodNote = QStringLiteral("Read install.sh (the script was not executed).");
+        } else {
+            QMetaObject::invokeMethod(this, [this]() {
+                setProgressMessage(QStringLiteral("Looking for SDDM themes…"));
+            }, Qt::QueuedConnection);
+            themeRoots = findThemeRoots(tempDir.path());
+            if (report.scriptPath.isEmpty()) {
+                methodNote = QStringLiteral("No install.sh used; installed by theme metadata.");
+            } else {
+                methodNote = QStringLiteral("install.sh did not name a valid theme folder; installed by theme metadata.");
+            }
+        }
+
+        if (themeRoots.isEmpty()) {
+            finish(false, QStringLiteral("No SDDM themes found in the repository (metadata.desktop missing)."));
+            return;
+        }
+
+        const QString repoHint = QUrl(normalizedUrl).fileName();
+        QString chopped = repoHint;
+        if (chopped.endsWith(QStringLiteral(".git"))) {
+            chopped.chop(4);
+        }
+
+        QString copyError;
+        if (!installDiscoveredThemes(themeRoots, systemWide, chopped, &installedThemeIds, &installedPaths, &copyError)) {
+            finish(false, copyError);
+            return;
+        }
+
+        const QString installBase = systemWide ? Platform::writableSystemThemeDir() : Platform::userThemeDir();
+        QString message = installedThemeIds.size() == 1
+                              ? QStringLiteral("Installed theme “%1” → %2")
+                                    .arg(installedThemeIds.constFirst(), installedPaths.constFirst())
+                              : QStringLiteral("Installed %1 themes under %2.")
+                                    .arg(installedThemeIds.size())
+                                    .arg(installBase);
+        message += QLatin1Char(' ') + methodNote;
+
+        if (!report.scriptDestination.isEmpty() && report.unusualDestination) {
+            message += QStringLiteral(" install.sh targeted %1; installed to %2 (experimental).")
+                           .arg(report.scriptDestination, installBase);
+        } else if (!report.scriptDestination.isEmpty() && isCanonicalSddmThemeDest(report.scriptDestination)
+                   && QDir::cleanPath(report.scriptDestination) != QDir::cleanPath(installBase)
+                   && !QDir::cleanPath(report.scriptDestination).startsWith(QDir::cleanPath(installBase) + QLatin1Char('/'))) {
+            message += QStringLiteral(" install.sh targeted %1; using %2 on this system.")
+                           .arg(report.scriptDestination, installBase);
+        }
+
+        finish(true, message);
+    });
+
+    return true;
 }
 
 void ThemeInstaller::setInstalling(bool installing)

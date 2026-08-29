@@ -411,6 +411,98 @@ int runQaSelfTest()
         fprintf(stdout, "QA[remove]: OK %s\n", qPrintable(message));
     }
 
+    {
+        const QString clone = themeDir.path() + QStringLiteral("/qa-script-clone");
+        const QString nested = clone + QStringLiteral("/pretty-candy");
+        if (!QDir().mkpath(nested)) {
+            fprintf(stderr, "QA[script-parse]: could not create clone fixture\n");
+            return 11;
+        }
+        const QString nestedMeta = QStringLiteral(
+            "[SddmGreeterTheme]\n"
+            "Name=Pretty Candy\n"
+            "MainScript=Main.qml\n"
+            "Theme-Id=pretty-candy\n"
+            "Theme-API=2.0\n"
+            "QtVersion=6\n");
+        if (!writeTextFile(nested + QStringLiteral("/metadata.desktop"), nestedMeta)
+            || !writeTextFile(nested + QStringLiteral("/Main.qml"),
+                              QStringLiteral("import QtQuick\nRectangle { color: \"#8B67F2\" }\n"))
+            || !writeTextFile(clone + QStringLiteral("/install.sh"),
+                              QStringLiteral("#!/bin/sh\ncp -r pretty-candy /usr/share/sddm/themes/\n"))) {
+            fprintf(stderr, "QA[script-parse]: could not write fixture\n");
+            return 12;
+        }
+
+        const auto report = ThemeInstaller::analyzeInstallScripts(clone);
+        if (!report.usedScript || report.unusualDestination || report.themeRoots.size() != 1) {
+            fprintf(stderr,
+                    "QA[script-parse]: unexpected report used=%d unusual=%d roots=%d dest=%s\n",
+                    report.usedScript,
+                    report.unusualDestination,
+                    int(report.themeRoots.size()),
+                    qPrintable(report.scriptDestination));
+            return 13;
+        }
+        if (!report.themeRoots.constFirst().endsWith(QStringLiteral("pretty-candy"))) {
+            fprintf(stderr, "QA[script-parse]: root is %s\n", qPrintable(report.themeRoots.constFirst()));
+            return 14;
+        }
+        fprintf(stdout, "QA[script-parse]: OK dest=%s\n", qPrintable(report.scriptDestination));
+    }
+
+    {
+        const QString clone = themeDir.path() + QStringLiteral("/qa-unusual-clone");
+        const QString nested = clone + QStringLiteral("/pretty-candy");
+        if (!QDir().mkpath(nested)) {
+            fprintf(stderr, "QA[script-unusual]: could not create clone fixture\n");
+            return 15;
+        }
+        const QString nestedMeta = QStringLiteral(
+            "[SddmGreeterTheme]\n"
+            "Name=Pretty Candy\n"
+            "MainScript=Main.qml\n"
+            "Theme-Id=pretty-candy\n");
+        if (!writeTextFile(nested + QStringLiteral("/metadata.desktop"), nestedMeta)
+            || !writeTextFile(nested + QStringLiteral("/Main.qml"),
+                              QStringLiteral("import QtQuick\nRectangle {}\n"))
+            || !writeTextFile(clone + QStringLiteral("/install.sh"),
+                              QStringLiteral("#!/bin/sh\ncp -r pretty-candy /opt/not-sddm/\n"))) {
+            fprintf(stderr, "QA[script-unusual]: could not write fixture\n");
+            return 16;
+        }
+        const auto report = ThemeInstaller::analyzeInstallScripts(clone);
+        if (!report.usedScript || !report.unusualDestination) {
+            fprintf(stderr,
+                    "QA[script-unusual]: expected unusual dest used=%d unusual=%d dest=%s\n",
+                    report.usedScript,
+                    report.unusualDestination,
+                    qPrintable(report.scriptDestination));
+            return 17;
+        }
+        fprintf(stdout, "QA[script-unusual]: OK dest=%s\n", qPrintable(report.scriptDestination));
+    }
+
+    {
+        QString normalized;
+        QString err;
+        if (!ThemeInstaller::normalizeGitHubUrl(QStringLiteral("https://github.com/user/repo"), &normalized, &err)
+            || normalized != QStringLiteral("https://github.com/user/repo.git")) {
+            fprintf(stderr, "QA[github-url]: https failed (%s / %s)\n", qPrintable(normalized), qPrintable(err));
+            return 18;
+        }
+        if (!ThemeInstaller::normalizeGitHubUrl(QStringLiteral("git@github.com:user/repo.git"), &normalized, &err)
+            || normalized != QStringLiteral("https://github.com/user/repo.git")) {
+            fprintf(stderr, "QA[github-url]: ssh failed (%s / %s)\n", qPrintable(normalized), qPrintable(err));
+            return 18;
+        }
+        if (ThemeInstaller::normalizeGitHubUrl(QStringLiteral("https://gitlab.com/user/repo"), &normalized, &err)) {
+            fprintf(stderr, "QA[github-url]: non-GitHub should be rejected\n");
+            return 19;
+        }
+        fprintf(stdout, "QA[github-url]: OK\n");
+    }
+
     if (!archivePath.isEmpty()) {
         rc = runInstall(archivePath, "archive");
         if (rc != 0) {

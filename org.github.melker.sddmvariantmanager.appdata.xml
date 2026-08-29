@@ -13,7 +13,8 @@
     </p>
     <p>
       It lists all installed SDDM themes, supports multi-variant collections in
-      a Themes/ folder, installs themes from local files/folders, and runs the real
+      a Themes/ folder, installs themes from local files/folders or (experimentally)
+      from a public GitHub repository without executing install.sh, and runs the real
       greeter in test mode so video and animated backgrounds preview faithfully
       (unlike static thumbnails in KDE settings alone).
     </p>
@@ -36,6 +37,11 @@
   <developer_name>Melker Halberd Pereira Alves</developer_name>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.3.0" date="2026-08-29">
+      <description>
+        <p>Experimental GitHub theme install: clone a public repo, read install.sh without running it, and copy themes into this distro’s SDDM directories.</p>
+      </description>
+    </release>
     <release version="2.2.0" date="2026-08-29">
       <description>
         <p>Master–detail dashboard: theme library, large preview, and a horizontal variant filmstrip. Product colors override desktop theme chrome. Light and dark palettes.</p>

@@ -11,18 +11,33 @@ class ThemeInstaller : public QObject
     Q_OBJECT
     Q_PROPERTY(bool installing READ installing NOTIFY installingChanged)
     Q_PROPERTY(QString progressMessage READ progressMessage NOTIFY progressMessageChanged)
+    Q_PROPERTY(bool gitAvailable READ gitAvailable CONSTANT)
 
 public:
     explicit ThemeInstaller(QObject *parent = nullptr);
 
     bool installing() const;
     QString progressMessage() const;
+    bool gitAvailable() const;
 
+    Q_INVOKABLE bool installFromUrl(const QString &url, bool systemWide);
     Q_INVOKABLE bool installFromLocalPath(const QString &path, bool systemWide);
     /// Delete an installed theme directory (user or system-wide with pkexec).
     Q_INVOKABLE bool removeTheme(const QString &themePath);
     /// True when the path can be removed by this app (not Nix store / read-only).
     Q_INVOKABLE bool canRemoveTheme(const QString &themePath) const;
+
+    /// Result of reading (never executing) install.sh in a cloned repo.
+    struct InstallScriptReport {
+        QString scriptPath;
+        QString scriptDestination;
+        QStringList themeRoots;
+        bool usedScript = false;
+        bool unusualDestination = false;
+    };
+
+    static bool normalizeGitHubUrl(const QString &input, QString *normalizedUrl, QString *error);
+    static InstallScriptReport analyzeInstallScripts(const QString &cloneRoot);
 
 Q_SIGNALS:
     void installingChanged();
@@ -37,6 +52,12 @@ private:
     void setInstalling(bool installing);
     void setProgressMessage(const QString &message);
     void beginInstallJob();
+    bool installDiscoveredThemes(const QStringList &themeRoots,
+                                 bool systemWide,
+                                 const QString &nameHint,
+                                 QStringList *installedIds,
+                                 QStringList *installedPaths,
+                                 QString *error);
 
     static QStringList findThemeRoots(const QString &rootPath);
     static QString uniqueInstallPath(const QString &baseDir, const QString &folderName);

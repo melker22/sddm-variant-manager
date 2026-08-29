@@ -12,7 +12,7 @@ Graphical tool for anyone who uses **SDDM** — whether you run **Hyprland**, **
 
 The interface is built with **Qt 6** and **Kirigami** (KDE-style). You do not need a Plasma session day to day; you only need SDDM and the runtime libraries listed below.
 
-**Current version: 2.2.0**
+**Current version: 2.3.0**
 
 ## Why this exists
 
@@ -42,6 +42,7 @@ SDDM Variant Manager was built to fix that: browse variants, preview backgrounds
 - Simple themes: apply as SDDM current theme and open a full greeter preview (no filmstrip)
 - High-quality static thumbnails for variant galleries (cached JPEG frames via `ffmpeg`)
 - **Install from a local folder or archive** — zip, tar, tar.gz, tar.xz, tar.bz2, tar.zst (or drag-and-drop onto the window)
+- **Install from GitHub (experimental)** — clone a public repo; the app reads `install.sh` to find the theme and copies it into this distro’s SDDM theme dirs (the script is never executed)
 - **Remove installed themes** — delete user (or writable system) themes from the theme stage (with confirmation)
 - Full SDDM login preview via `sddm-greeter` / `sddm-greeter-qt6 --test-mode` (chosen automatically per theme)
 - **Qt5 vs Qt6 compatibility checks**: warns when a theme stack does not match your system greeter (e.g. Qt5 theme + Qt6-only greeter, or Qt6 theme + Qt5-only greeter)
@@ -79,6 +80,16 @@ nix profile add nixpkgs#ffmpeg
 
 Only skip `ffmpeg` if you truly cannot install it on your system.
 
+### Optional
+
+- **`git`** — needed for **Install Theme → GitHub** (experimental). The app clones the repo and reads `install.sh`; it never runs the script. The Nix package already wraps `git`.
+
+```bash
+# Arch / Manjaro
+sudo pacman -S git
+# or: pamac install git --no-confirm
+```
+
 ## Build
 
 ### Classic (cmake)
@@ -106,7 +117,7 @@ cmake --build build
 
 On NixOS you can also use the existing `shell.nix` / `./qtcreator-dev.sh` helpers to open Qt Creator with the correct QML plugin paths.
 
-Self-test (install folder + remove + archive install/rescan):
+Self-test (install folder + remove + `install.sh` parser fixtures + archive install/rescan; no network):
 
 ```bash
 sddm-variant-manager --qa-self-test
@@ -120,7 +131,7 @@ Pick the section for your distro. The app is **not** in official distro repos ye
 
 ### NixOS (recommended)
 
-Enable flakes (`nix-command` + `flakes`) if you have not already. Do **not** copy a debug `build/` binary into the system — use the flake so Qt, Kirigami, QtMultimedia, and `ffmpeg` are wrapped.
+Enable flakes (`nix-command` + `flakes`) if you have not already. Do **not** copy a debug `build/` binary into the system — use the flake so Qt, Kirigami, QtMultimedia, `ffmpeg`, and `git` are wrapped.
 
 #### 1. Quick try (no install)
 
@@ -214,7 +225,7 @@ home.packages = [
 ];
 ```
 
-The package wraps Qt/Kirigami (`wrapQtAppsHook`), ships **QtMultimedia** for the app UI/preview, and puts `ffmpeg` on `PATH`.
+The package wraps Qt/Kirigami (`wrapQtAppsHook`), ships **QtMultimedia** for the app UI/preview, and puts `ffmpeg` and `git` on `PATH` (`git` is for experimental GitHub theme clone).
 
 #### 5. Video themes and greeter Qt modules (real login)
 
@@ -268,7 +279,7 @@ Rebuild with `sudo nixos-rebuild switch`. The GUI drop-in and declarative `theme
 
 ### Arch Linux / Manjaro
 
-There is no AUR package yet. Build the native `.pkg.tar.zst` from this tree with the bundled PKGBUILD (`packaging/arch/`, currently **2.2.0**):
+There is no AUR package yet. Build the native `.pkg.tar.zst` from this tree with the bundled PKGBUILD (`packaging/arch/`, currently **2.3.0**):
 
 ```bash
 # needs base-devel (makepkg, pacman)
@@ -284,7 +295,7 @@ Or with **pamac**:
 pamac install ./sddm-variant-manager-*.pkg.tar.zst --no-confirm
 ```
 
-This installs to `/usr/bin`, adds a `.desktop` entry, and pulls Qt 6 / Kirigami / `breeze-icons` via `depends`. `ffmpeg` is optional (`optdepends`) for sharp video thumbnails.
+This installs to `/usr/bin`, adds a `.desktop` entry, and pulls Qt 6 / Kirigami / `breeze-icons` via `depends`. `ffmpeg` and `git` are optional (`optdepends`) — thumbnails and experimental GitHub clone.
 
 To remove later:
 
@@ -309,7 +320,7 @@ sudo dnf install cmake extra-cmake-modules ninja-build gcc-c++ \
   qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel \
   qt6-qtsvg-devel qt6-qtwayland-devel \
   kf6-kirigami-devel kf6-kcoreaddons-devel kf6-ki18n-devel kf6-karchive-devel \
-  breeze-icon-theme ffmpeg sddm polkit
+  breeze-icon-theme ffmpeg git sddm polkit
 ```
 
 Then follow [From source](#from-source-manual) below. For video login themes:
@@ -324,7 +335,7 @@ sudo dnf install qt6-qtmultimedia qt6-qt5compat qt6-qtsvg
 sudo zypper install cmake extra-cmake-modules ninja gcc-c++ \
   qt6-base-devel qt6-declarative-devel qt6-multimedia-devel qt6-svg-devel \
   kf6-kirigami-devel kf6-kcoreaddons-devel kf6-ki18n-devel kf6-karchive-devel \
-  breeze6-icons ffmpeg sddm polkit
+  breeze6-icons ffmpeg git sddm polkit
 ```
 
 Then follow [From source](#from-source-manual). Package names on Leap may differ; prefer Tumbleweed for Qt 6 / KF6.
@@ -337,7 +348,7 @@ Need a release with **Qt 6 and KF6** (Debian testing/unstable, Ubuntu 25.04+). U
 sudo apt install cmake extra-cmake-modules ninja-build g++ \
   qt6-base-dev qt6-declarative-dev qt6-multimedia-dev qt6-svg-dev \
   kirigami-dev libkf6coreaddons-dev libkf6i18n-dev libkf6archive-dev \
-  breeze-icon-theme ffmpeg sddm policykit-1
+  breeze-icon-theme ffmpeg git sddm policykit-1
 ```
 
 Then follow [From source](#from-source-manual).
@@ -365,14 +376,20 @@ This installs the binary to `/usr/bin` and adds a `.desktop` entry. On NixOS pre
 
 ### Install themes
 
-Themes are installed only from **local files or folders** (download a ZIP/tarball from GitHub yourself if needed).
-
 1. Click **Install Theme** at the bottom of the library (or drag a folder/archive onto the window).
-2. Use **Choose Archive…** for `.zip`, `.tar`, `.tar.gz` / `.tgz`, `.tar.xz` / `.txz`, `.tar.bz2`, `.tar.zst`, or **Choose Folder…** for a directory that contains one or more themes (`metadata.desktop`).
+2. Use **From file**: **Choose Archive…** for `.zip`, `.tar`, `.tar.gz` / `.tgz`, `.tar.xz` / `.txz`, `.tar.bz2`, `.tar.zst`, or **Choose Folder…** for a directory that contains one or more themes (`metadata.desktop`). You can also paste a path or **drag and drop** onto the main window.
 3. Optionally enable **Install system-wide** (needs admin password).
 4. Click **Install**.
 
-You can also paste a path or **drag and drop** a theme folder or archive onto the main window.
+#### Install themes from GitHub (experimental)
+
+This path is **BETA**. It needs `git` on `PATH`. Only **public GitHub** repositories are accepted (`https://github.com/user/repo` or `git@github.com:user/repo.git`).
+
+1. Open **Install Theme** → **GitHub**.
+2. Paste the repository URL.
+3. Choose user vs system-wide, then **Install**.
+
+The app clones the repo, **reads** `install.sh` / `install-sddm.sh` (it does **not** run the script), copies theme folders that have `metadata.desktop` into this distro’s SDDM directories, and falls back to scanning the clone if there is no usable script. If the script points at a non-standard location, the theme is still installed into the usual SDDM dirs and the status message says so. Extra steps in the script (fonts, Plymouth, …) are ignored.
 
 #### Install locations
 
