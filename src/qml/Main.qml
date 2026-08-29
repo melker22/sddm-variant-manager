@@ -17,6 +17,8 @@ Kirigami.ApplicationWindow {
     height: 900
     minimumWidth: 1100
     minimumHeight: 700
+    // Design background wins over whatever the desktop theme paints behind pages.
+    color: appColors.background
 
     AppColorScheme {
         id: appColors
@@ -508,14 +510,15 @@ Kirigami.ApplicationWindow {
         property Item control
         property bool danger: false
         radius: appColors.radiusCard
+        // Design: white surface + subtle border; hover mauve wash (not Breeze/Fusion).
         color: {
             if (!control)
-                return appColors.surface
+                return appColors.fieldBg
             if (control.down)
                 return Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.12)
             if (control.hovered)
                 return Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.08)
-            return appColors.surface
+            return appColors.fieldBg
         }
         border.width: 1
         border.color: control && control.hovered ? appColors.primary : appColors.cardBorder
@@ -715,6 +718,10 @@ Kirigami.ApplicationWindow {
                             text: "Install Theme"
                             icon.name: "list-add"
                             onClicked: root.openInstallThemeSheet()
+                            leftPadding: 16
+                            rightPadding: 16
+                            topPadding: 8
+                            bottomPadding: 8
 
                             contentItem: RowLayout {
                                 spacing: 8
@@ -737,9 +744,46 @@ Kirigami.ApplicationWindow {
                                 color: installPrimaryBtn.down ? appColors.accentHover
                                       : (installPrimaryBtn.hovered ? appColors.accentHover : appColors.primary)
                                 Behavior on color { ColorAnimation { duration: 120 } }
+
+                                // Soft mauve glow under primary CTA (design shadow).
+                                Rectangle {
+                                    z: -1
+                                    anchors.fill: parent
+                                    anchors.topMargin: 2
+                                    radius: parent.radius
+                                    color: installPrimaryBtn.hovered ? appColors.shadowCardHover : "transparent"
+                                    visible: installPrimaryBtn.hovered || installPrimaryBtn.down
+                                }
                             }
                         }
 
+                        Button {
+                            id: fromFileBtn
+                            text: "From File…"
+                            onClicked: root.openInstallThemeSheet()
+                            leftPadding: 12
+                            rightPadding: 12
+                            topPadding: 8
+                            bottomPadding: 8
+
+                            contentItem: RowLayout {
+                                spacing: 8
+                                Kirigami.Icon {
+                                    source: "folder-open"
+                                    Layout.preferredWidth: 12
+                                    Layout.preferredHeight: 12
+                                    color: appColors.primary
+                                }
+                                Label {
+                                    text: "From File…"
+                                    font.family: root.bodyFont
+                                    font.weight: Font.Medium
+                                    font.pixelSize: 13
+                                    color: appColors.surfaceVariantFg
+                                }
+                            }
+                            background: AppSecondaryChrome { control: fromFileBtn }
+                        }
 
                         Button {
                             id: refreshBtn
@@ -754,12 +798,7 @@ Kirigami.ApplicationWindow {
                                 source: "view-refresh"
                                 color: appColors.primary
                             }
-                            background: Rectangle {
-                                radius: appColors.radiusCard
-                                color: refreshBtn.hovered ? Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.08) : appColors.surface
-                                border.width: 1
-                                border.color: appColors.cardBorder
-                            }
+                            background: AppSecondaryChrome { control: refreshBtn }
                         }
                     }
                 }
@@ -1155,11 +1194,23 @@ Kirigami.ApplicationWindow {
                                         radius: appColors.radiusCard
                                         color: appColors.surface
                                         border.width: variantSelected ? 2 : 1
-                                        border.color: variantSelected ? appColors.primary : appColors.cardBorder
+                                        border.color: variantSelected || cardHover.hovered
+                                                       ? appColors.primary : appColors.cardBorder
                                         clip: true
 
                                         Behavior on border.color { ColorAnimation { duration: 120 } }
-                                        Behavior on y { NumberAnimation { duration: 120 } }
+                                        Behavior on y { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+
+                                        // Design shadow-card / shadow-card-hover (framework has none).
+                                        Rectangle {
+                                            z: -1
+                                            anchors.fill: parent
+                                            anchors.topMargin: cardHover.hovered || variantSelected
+                                                               ? appColors.shadowYHover : appColors.shadowY
+                                            radius: parent.radius
+                                            color: cardHover.hovered || variantSelected
+                                                   ? appColors.shadowCardHover : appColors.shadowCard
+                                        }
 
                                         ColumnLayout {
                                             anchors.fill: parent
@@ -1234,13 +1285,15 @@ Kirigami.ApplicationWindow {
                                             }
                                         }
 
+                                        HoverHandler {
+                                            id: cardHover
+                                            onHoveredChanged: cardChrome.y = hovered ? -2 : 0
+                                        }
+
                                         MouseArea {
                                             anchors.fill: parent
-                                            hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
                                             onClicked: root.selectedVariantIndex = sourceIndex
-                                            onEntered: cardChrome.y = -2
-                                            onExited: cardChrome.y = 0
                                         }
                                     }
                                 }
@@ -1916,6 +1969,16 @@ Kirigami.ApplicationWindow {
                                         radius: appColors.radiusCard
                                         color: !applyBtn.enabled ? appColors.disabledPrimary
                                              : (applyBtn.down || applyBtn.hovered ? appColors.accentHover : appColors.primary)
+                                        Behavior on color { ColorAnimation { duration: 120 } }
+
+                                        Rectangle {
+                                            z: -1
+                                            anchors.fill: parent
+                                            anchors.topMargin: 3
+                                            radius: parent.radius
+                                            color: appColors.shadowCardHover
+                                            visible: applyBtn.enabled && (applyBtn.hovered || applyBtn.down)
+                                        }
                                     }
                                 }
 

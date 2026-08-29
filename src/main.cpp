@@ -438,6 +438,10 @@ int main(int argc, char *argv[])
 
     // Must run before QGuiApplication: platform theme + GSettings are read early.
     prepareDesktopEnvironment();
+    // Design-first: Basic Quick Controls chrome; our QML paints the UX Pilot look.
+    if (!qEnvironmentVariableIsSet("QT_QUICK_CONTROLS_STYLE")) {
+        qputenv("QT_QUICK_CONTROLS_STYLE", "Basic");
+    }
 
     for (int i = 1; i < argc; ++i) {
         if (QString::fromLocal8Bit(argv[i]) == QLatin1String("--qa-self-test")) {
