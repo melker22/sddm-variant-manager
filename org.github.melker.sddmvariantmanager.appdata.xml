@@ -36,6 +36,11 @@
   <developer_name>Melker Halberd Pereira Alves</developer_name>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.2.0" date="2026-08-29">
+      <description>
+        <p>Master–detail dashboard: theme library, large preview, and a horizontal variant filmstrip. Product colors override desktop theme chrome. Light and dark palettes.</p>
+      </description>
+    </release>
     <release version="2.1.0" date="2026-08-03"/>
     <release version="2.0.2" date="2026-07-12"/>
     <release version="2.0.1" date="2026-07-12"/>

@@ -20,7 +20,9 @@ ItemDelegate {
     property string headingFont: "Sora"
     property string bodyFont: "Manrope"
 
-    width: ListView.view ? ListView.view.width : implicitWidth
+    width: ListView.view
+           ? (ListView.view.width - ListView.view.leftMargin - ListView.view.rightMargin)
+           : implicitWidth
     height: 52
     highlighted: false
     hoverEnabled: true
@@ -29,15 +31,27 @@ ItemDelegate {
     topPadding: 8
     bottomPadding: 8
 
+    readonly property string badgeText: {
+        if (control.readOnly)
+            return "RO"
+        if (control.scopeLabel === "System")
+            return "SYSTEM"
+        if (control.scopeLabel === "User")
+            return "USER"
+        return control.scopeLabel.toUpperCase()
+    }
+
     background: Item {
         Rectangle {
             anchors.fill: parent
-            radius: 8
+            radius: 10
             color: {
                 if (control.selected)
-                    return Qt.rgba(control.colors.primary.r, control.colors.primary.g, control.colors.primary.b, 0.12)
+                    return Qt.rgba(control.colors.primary.r, control.colors.primary.g, control.colors.primary.b,
+                                   control.colors.isDark ? 0.20 : 0.10)
                 if (control.hovered)
-                    return Qt.rgba(control.colors.primary.r, control.colors.primary.g, control.colors.primary.b, 0.07)
+                    return control.colors.isDark ? Qt.rgba(1, 1, 1, 0.05)
+                                                : Qt.rgba(1, 1, 1, 0.60)
                 return "transparent"
             }
             Behavior on color { ColorAnimation { duration: 120 } }
@@ -47,8 +61,6 @@ ItemDelegate {
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            anchors.topMargin: 6
-            anchors.bottomMargin: 6
             width: 3
             radius: 2
             color: control.colors.primary
@@ -56,15 +68,13 @@ ItemDelegate {
     }
 
     contentItem: RowLayout {
-        spacing: 10
+        spacing: 12
 
         Rectangle {
             Layout.preferredWidth: 32
             Layout.preferredHeight: 32
             radius: 8
             color: control.colors.surfaceVariant
-            border.width: 1
-            border.color: control.colors.cardBorder
             clip: true
 
             Image {
@@ -96,7 +106,7 @@ ItemDelegate {
                 Layout.fillWidth: true
                 text: control.themeName
                 font.family: control.headingFont
-                font.weight: control.selected ? Font.DemiBold : Font.Medium
+                font.weight: Font.Bold
                 font.pixelSize: 13
                 color: control.colors.surfaceFg
                 elide: Text.ElideRight
@@ -113,38 +123,21 @@ ItemDelegate {
         }
 
         Rectangle {
-            visible: !control.readOnly
-            radius: height / 2
-            color: control.scopeLabel === "System" ? control.colors.badgeSystemBg : control.colors.badgeUserBg
-            implicitHeight: scopeChip.implicitHeight + 4
-            implicitWidth: scopeChip.implicitWidth + 14
+            radius: 6
+            color: control.readOnly ? control.colors.badgeReadonlyBg
+                 : (control.scopeLabel === "System" ? control.colors.badgeSystemBg : control.colors.badgeUserBg)
+            implicitHeight: badgeLbl.implicitHeight + 6
+            implicitWidth: badgeLbl.implicitWidth + 12
 
             Label {
-                id: scopeChip
+                id: badgeLbl
                 anchors.centerIn: parent
-                text: control.scopeLabel
-                font.family: control.bodyFont
-                font.weight: Font.DemiBold
-                font.pixelSize: 11
-                color: control.scopeLabel === "System" ? control.colors.badgeSystemText : control.colors.badgeUserText
-            }
-        }
-
-        Rectangle {
-            visible: control.readOnly
-            radius: height / 2
-            color: control.colors.badgeReadonlyBg
-            implicitHeight: roChip.implicitHeight + 4
-            implicitWidth: roChip.implicitWidth + 14
-
-            Label {
-                id: roChip
-                anchors.centerIn: parent
-                text: "Read-only"
-                font.family: control.bodyFont
-                font.weight: Font.DemiBold
-                font.pixelSize: 11
-                color: control.colors.badgeReadonlyText
+                text: control.badgeText
+                font.family: control.headingFont
+                font.weight: Font.Bold
+                font.pixelSize: 9
+                color: control.readOnly ? control.colors.badgeReadonlyText
+                     : (control.scopeLabel === "System" ? control.colors.badgeSystemText : control.colors.badgeUserText)
             }
         }
     }

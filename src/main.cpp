@@ -438,7 +438,7 @@ int main(int argc, char *argv[])
 
     // Must run before QGuiApplication: platform theme + GSettings are read early.
     prepareDesktopEnvironment();
-    // Design-first: Basic Quick Controls chrome; our QML paints the UX Pilot look.
+    // Design-first: Basic Quick Controls chrome; QML paints the product look.
     if (!qEnvironmentVariableIsSet("QT_QUICK_CONTROLS_STYLE")) {
         qputenv("QT_QUICK_CONTROLS_STYLE", "Basic");
     }
@@ -456,7 +456,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationName(QStringLiteral("sddm-variant-manager"));
     QGuiApplication::setOrganizationName(QStringLiteral("Melker"));
     QGuiApplication::setOrganizationDomain(QStringLiteral("github.melker"));
-    QGuiApplication::setApplicationVersion(QStringLiteral("2.1.0"));
+    QGuiApplication::setApplicationVersion(QStringLiteral("2.2.0"));
     QGuiApplication::setQuitOnLastWindowClosed(true);
     QGuiApplication::setDesktopFileName(QString::fromUtf8(kAppIconName));
 

@@ -1,6 +1,6 @@
 # Maintainer: Melker Halberd Pereira Alves <melker168@gmail.com>
 pkgname=sddm-variant-manager
-pkgver=2.1.0
+pkgver=2.2.0
 pkgrel=1
 pkgdesc="Browse, preview, apply, install, and remove SDDM login theme variants"
 arch=('x86_64')
@@ -28,10 +28,13 @@ makedepends=(
 )
 optdepends=(
   'ffmpeg: high-quality variant thumbnails from video backgrounds'
+  'qt6-wayland: Wayland sessions (Hyprland, Sway, Plasma Wayland)'
   'qt6-5compat: older themes that need GraphicalEffects via Qt5Compat'
+  'qt6-multimedia: video backgrounds in the real SDDM greeter'
 )
 source=("$pkgname-$pkgver.tar.gz")
-sha256sums=('24a8e3aa47d81b60b04aacaaa881ef56dc655b09d768643e9a6d11067b898a4c')
+# build-package.sh replaces this with the tarball checksum before makepkg.
+sha256sums=('SKIP')
 
 build() {
   cmake -B build -S "$pkgname-$pkgver" \
