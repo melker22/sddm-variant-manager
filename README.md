@@ -1,180 +1,111 @@
 # SDDM Variant Manager
 
-**Light mode**
+[![License: GPL-3.0](https://img.shields.io/github/license/melker22/sddm-variant-manager?color=8B67F2)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/melker22/sddm-variant-manager?color=8B67F2)](https://github.com/melker22/sddm-variant-manager/releases)
+[![Nix flake](https://img.shields.io/badge/Nix-flake-informational?logo=nixos)](https://github.com/melker22/sddm-variant-manager#nixos)
+[![Qt 6](https://img.shields.io/badge/Qt-6-41CD52?logo=qt)](https://www.qt.io/)
 
-![SDDM Variant Manager screenshot (Light mode)](screenshot.png)
+Browse, preview, apply, install, and remove **SDDM** login themes without logging out every time. Works on **Hyprland**, **Plasma**, and any other desktop that uses SDDM. Multi-variant collections such as [ZenMatrix Collection](https://github.com/OminduD/sddm-themes) show up as a filmstrip under a large 16:9 preview.
 
-**Dark mode**
-
-![SDDM Variant Manager screenshot (Dark mode)](screenshot-dark.png)
-
-Graphical tool for anyone who uses **SDDM** — whether you run **Hyprland**, **Plasma**, or another desktop — to browse, preview, apply, install, and remove login screen themes without logging out every time. It supports multi-variant collections such as [ZenMatrix Collection](https://github.com/OminduD/sddm-themes).
-
-The interface is built with **Qt 6** and **Kirigami** (KDE-style). You do not need a Plasma session day to day; you only need SDDM and the runtime libraries listed below.
+Built with **Qt 6** and **Kirigami**. You do not need a Plasma session day to day — only SDDM and the libraries listed under [Requirements](#requirements).
 
 **Current version: 2.3.0**
 
+<table>
+  <tr>
+    <td align="center"><strong>Light</strong></td>
+    <td align="center"><strong>Dark</strong></td>
+  </tr>
+  <tr>
+    <td><img src="screenshot.png" alt="SDDM Variant Manager in light mode"></td>
+    <td><img src="screenshot-dark.png" alt="SDDM Variant Manager in dark mode"></td>
+  </tr>
+</table>
+
+## Contents
+
+- [Why this exists](#why-this-exists)
+- [Features](#features)
+- [Install](#install)
+  - [NixOS](#nixos)
+  - [Arch Linux / Manjaro](#arch-linux--manjaro)
+  - [Fedora, openSUSE, Debian / Ubuntu](#fedora-opensuse-debian--ubuntu)
+  - [From source](#from-source-manual)
+- [Usage](#usage)
+- [Requirements](#requirements)
+- [Build](#build)
+- [License](#license)
+
 ## Why this exists
 
-I use **Hyprland** daily with **SDDM** as my display manager and enjoy customizing the login screen. Browsing SDDM themes was frustrating: the only reliable way to see how a theme really looked was to set it, log out, and test on the actual greeter — over and over.
+I use **Hyprland** daily with **SDDM** and like customizing the login screen. The only reliable way to see how a theme really looked was to set it, log out, and test on the actual greeter — over and over.
 
-Themes with **multiple background variants** (collections that ship a `Themes/*.conf` folder) were worse: switching variants meant editing `metadata.desktop` or config files by hand.
+Themes with **multiple background variants** (`Themes/*.conf`) were worse: switching meant editing `metadata.desktop` by hand. KDE’s SDDM settings help with thumbnails, but they do not show a faithful fullscreen preview — especially for **video, GIF, or QML** backgrounds.
 
-KDE's SDDM theme settings (available on my Manjaro install, which also has Plasma) help with thumbnails and picking a theme, but they do not show a faithful fullscreen preview — especially for **animated backgrounds** (video, GIF, or QML animation).
-
-SDDM Variant Manager was built to fix that: browse variants, preview backgrounds, run the real greeter in test mode, and apply changes without logging out every time.
-
-## Who it's for
-
-- **Hyprland, Plasma, or any setup** that uses SDDM
-- Rice / theme collectors who install many login themes
-- Multi-variant theme packs (e.g. ZenMatrix Collection)
-- Video or animated SDDM backgrounds
+This app fixes that: browse variants, preview backgrounds, run the **real greeter** in test mode, and apply changes without logging out every time.
 
 ## Features
 
-- Lists **all installed SDDM themes** (`metadata.desktop`) under:
+**Library and preview**
+
+- Lists every installed SDDM theme (`metadata.desktop`) from:
   - `/usr/share/sddm/themes/` (Arch / Manjaro / most distros)
   - `/run/current-system/sw/share/sddm/themes/` and `/var/lib/sddm/themes/` (**NixOS**)
   - `~/.local/share/sddm/themes/` (per-user)
-  - Extra roots from `XDG_DATA_DIRS`
-- Multi-variant themes: browse `Themes/*.conf` variants in a horizontal filmstrip, apply a variant, preview backgrounds in a large 16:9 stage
-- Simple themes: apply as SDDM current theme and open a full greeter preview (no filmstrip)
-- High-quality static thumbnails for variant galleries (cached JPEG frames via `ffmpeg`)
-- **Install from a local folder or archive** — zip, tar, tar.gz, tar.xz, tar.bz2, tar.zst (or drag-and-drop onto the window)
-- **Install from GitHub (experimental)** — clone a public repo; the app reads `install.sh` to find the theme and copies it into this distro’s SDDM theme dirs (the script is never executed)
-- **Remove installed themes** — delete user (or writable system) themes from the theme stage (with confirmation)
-- Full SDDM login preview via `sddm-greeter` / `sddm-greeter-qt6 --test-mode` (chosen automatically per theme)
-- **Qt5 vs Qt6 compatibility checks**: warns when a theme stack does not match your system greeter (e.g. Qt5 theme + Qt6-only greeter, or Qt6 theme + Qt5-only greeter)
-- **Greeter capability check**: detects QtMultimedia / Qt5Compat / etc., and reports missing modules (themes are never rewritten on disk for real login)
-- **NixOS-aware**: system installs go to `/var/lib/sddm/themes/`; activating a theme writes a drop-in under `/etc/sddm.conf.d/` (no rebuild required)
+  - extra roots from `XDG_DATA_DIRS`
+- Multi-variant themes: horizontal filmstrip, apply a variant, large 16:9 stage
+- Simple themes: apply as the current SDDM theme and open a full greeter preview
+- Sharp static thumbnails for video variants (cached JPEG frames via `ffmpeg`)
 
-## Requirements
+**Install and remove**
 
-### Required
+- Local folder or archive: zip, tar, tar.gz, tar.xz, tar.bz2, tar.zst (or drag-and-drop)
+- **GitHub (experimental):** clone a public repo, **read** `install.sh` (never execute it), copy theme folders into this distro’s SDDM directories
+- Remove writable user or system themes from the theme stage (with confirmation)
 
-- Qt 6 and KF6 Kirigami (a Plasma install on the system makes these easy to satisfy on Manjaro/Arch)
-- KF6 Archive (`karchive`) — extract zip / tar archives when installing from a local file
-- SDDM
-- `sddm-greeter-qt6` and/or `sddm-greeter` (Qt 5 themes prefer the latter when available)
-- `pkexec` (PolicyKit) for writing system theme files or system-wide installs
+**Compatibility**
 
-```bash
-# Arch / Manjaro (if not already pulled in with Plasma)
-sudo pacman -S karchive
-# or: pamac install karchive --no-confirm
-```
-
-### Strongly recommended
-
-- **`ffmpeg`** — builds sharp static thumbnails from theme background videos. The app still runs without it, but variant thumbnails fall back to low-resolution GIF previews.
-
-```bash
-# Arch / Manjaro
-sudo pacman -S ffmpeg
-# or: pamac install ffmpeg --no-confirm
-
-# NixOS (user profile)
-nix profile add nixpkgs#ffmpeg
-```
-
-Only skip `ffmpeg` if you truly cannot install it on your system.
-
-### Optional
-
-- **`git`** — needed for **Install Theme → GitHub** (experimental). The app clones the repo and reads `install.sh`; it never runs the script. The Nix package already wraps `git`.
-
-```bash
-# Arch / Manjaro
-sudo pacman -S git
-# or: pamac install git --no-confirm
-```
-
-## Build
-
-### Classic (cmake)
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-./build/sddm-variant-manager
-```
-
-Open the project in **Qt Creator** via `CMakeLists.txt`.
-
-### Nix / NixOS (flake)
-
-```bash
-# One-shot run without installing
-nix run .
-
-# Development shell (cmake, Qt 6, Kirigami, …)
-nix develop
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
-./build/sddm-variant-manager
-```
-
-On NixOS you can also use the existing `shell.nix` / `./qtcreator-dev.sh` helpers to open Qt Creator with the correct QML plugin paths.
-
-Self-test (install folder + remove + `install.sh` parser fixtures + archive install/rescan; no network):
-
-```bash
-sddm-variant-manager --qa-self-test
-# or from a local debug build:
-./build/Desktop_Nix_Qt6-Debug/sddm-variant-manager --qa-self-test
-```
+- Full login preview via `sddm-greeter` / `sddm-greeter-qt6 --test-mode` (picked automatically)
+- Warns when a theme’s Qt 5 / Qt 6 stack does not match your greeter
+- Detects missing greeter modules (QtMultimedia, Qt5Compat, …). Themes are **never rewritten** on disk for real login
+- **NixOS-aware:** system installs go to `/var/lib/sddm/themes/`; activating a theme writes `/etc/sddm.conf.d/` (no rebuild)
 
 ## Install
 
-Pick the section for your distro. The app is **not** in official distro repos yet; packages below are the supported ways to install it.
+The app is **not** in official distro repos yet. Use one of the paths below.
 
-### NixOS (recommended)
+### NixOS
 
-Enable flakes (`nix-command` + `flakes`) if you have not already. Do **not** copy a debug `build/` binary into the system — use the flake so Qt, Kirigami, QtMultimedia, `ffmpeg`, and `git` are wrapped.
+Enable flakes (`nix-command` + `flakes`). Do **not** copy a debug `build/` binary into the system — the flake wraps Qt, Kirigami, QtMultimedia, `ffmpeg`, and `git`.
 
-#### 1. Quick try (no install)
+**Try without installing**
 
 ```bash
 nix run github:melker22/sddm-variant-manager
 ```
 
-From a local clone of this repo:
+From a local clone: `nix run .`
 
-```bash
-nix run .
-```
-
-#### 2. User profile (single-user machines)
-
-This is the usual install on a personal NixOS box. It puts the app in `~/.nix-profile` and the application menu.
+**User profile** (usual install on a personal machine — application menu + `~/.nix-profile`)
 
 ```bash
 nix profile add github:melker22/sddm-variant-manager
+sddm-variant-manager
 ```
 
-From a local clone (includes uncommitted tree changes when the git worktree is dirty):
+From a local clone (includes uncommitted tree changes when the worktree is dirty):
 
 ```bash
 nix profile remove sddm-variant-manager   # skip if this is the first install
 nix profile add .
 ```
 
-Update a GitHub-based profile install after a new release:
+After a new release: `nix profile upgrade sddm-variant-manager`
 
-```bash
-nix profile upgrade sddm-variant-manager
-```
+<details>
+<summary>System-wide flake, Home Manager, and greeter video modules</summary>
 
-Then launch from the application menu or:
-
-```bash
-sddm-variant-manager
-```
-
-#### 3. System-wide via flake (multi-user machines)
-
-Add the flake input and put the package on `environment.systemPackages`:
+**System-wide** — add the flake input and put the package on `environment.systemPackages`:
 
 ```nix
 # flake.nix
@@ -200,24 +131,17 @@ Add the flake input and put the package on `environment.systemPackages`:
 }
 ```
 
-Then rebuild:
+Then `sudo nixos-rebuild switch`.
 
-```bash
-sudo nixos-rebuild switch
-# with askpass on some setups:
-# sudo -A nixos-rebuild switch --flake /etc/nixos#YOUR_HOSTNAME
-```
-
-#### 4. Home Manager
+**Home Manager**
 
 ```nix
-# In a flake-based home-manager config:
 home.packages = [
   inputs.sddm-variant-manager.packages.${pkgs.system}.default
 ];
 ```
 
-Or vendor the package without adding a flake input:
+Or vendor the package without a flake input:
 
 ```nix
 home.packages = [
@@ -225,11 +149,7 @@ home.packages = [
 ];
 ```
 
-The package wraps Qt/Kirigami (`wrapQtAppsHook`), ships **QtMultimedia** for the app UI/preview, and puts `ffmpeg` and `git` on `PATH` (`git` is for experimental GitHub theme clone).
-
-#### 5. Video themes and greeter Qt modules (real login)
-
-The app **does not rewrite theme files** for the real login greeter. Video backgrounds need **QtMultimedia inside the system SDDM greeter**, not only in the app. On NixOS add:
+**Video themes at the real login screen** need QtMultimedia **inside the SDDM greeter**, not only in this app:
 
 ```nix
 services.displayManager.sddm.extraPackages = with pkgs.kdePackages; [
@@ -240,80 +160,72 @@ services.displayManager.sddm.extraPackages = with pkgs.kdePackages; [
 ];
 ```
 
-Do **not** set `services.displayManager.sddm.package` if Plasma already defines it — that causes a NixOS option conflict. Use `extraPackages` only.
+Do **not** set `services.displayManager.sddm.package` if Plasma already defines it (option conflict). Use `extraPackages` only, rebuild, and log out once.
 
-Then `sudo nixos-rebuild switch` and log out once so the new greeter wrap is used. The app reports missing greeter modules and **Qt5 vs Qt6 theme mismatches** in the UI.
+</details>
 
-### How theme install/apply works on NixOS
+<details>
+<summary>How install and apply work on NixOS</summary>
 
-NixOS keeps `/usr` and the SDDM theme tree under `/run/current-system/...` **immutable**. This app therefore:
+`/usr` and the Nix store theme tree are **immutable**. This app therefore:
 
 | Action | Location |
 |--------|----------|
 | Scan system themes | `/run/current-system/sw/share/sddm/themes/` (read-only) |
 | Install system-wide | `/var/lib/sddm/themes/` (writable, persists across rebuilds) |
 | Install per-user | `~/.local/share/sddm/themes/` |
-| Activate theme | writes `/etc/sddm.conf.d/99-sddm-variant-manager.conf` with `Current=` and `ThemeDir=` |
+| Activate theme | `/etc/sddm.conf.d/99-sddm-variant-manager.conf` (`Current=` and `ThemeDir=`) |
 
-That drop-in overrides `Theme` settings from the generated `00-nixos.conf` **without** a `nixos-rebuild`. Polkit (`pkexec`) is required; Plasma/SDDM already provide it.
+That drop-in overrides `Theme` from generated `00-nixos.conf` **without** a rebuild. Polkit (`pkexec`) is required.
 
-Home-installed themes are **copied unchanged** into `/var/lib/sddm/themes/` when activated, because the `sddm` user often cannot read `$HOME` (mode `700`). System-wide installs also fix permissions so the library UI can list `/var/lib/sddm/themes/` (path traversal on the sddm state dir when needed).
+Home-installed themes are **copied unchanged** into `/var/lib/sddm/themes/` when activated, because the `sddm` user often cannot read `$HOME` (mode `700`).
 
-**Read-only themes** from the Nix store (e.g. `breeze`) can still be **activated** and **previewed**. Applying a **variant** (editing `metadata.desktop`) needs a writable copy — install the theme system-wide or per-user first.
+Read-only Nix store themes (e.g. `breeze`) can still be **activated** and **previewed**. Applying a **variant** (editing `metadata.desktop`) needs a writable copy — install the theme first.
 
-#### Declarative theme only (optional)
-
-If you prefer everything in `configuration.nix` instead of the GUI:
+If you prefer a fully declarative theme instead of the GUI:
 
 ```nix
-{ pkgs, ... }:
-{
-  services.displayManager.sddm = {
-    enable = true;
-    theme = "breeze"; # theme directory name under ThemeDir
-  };
-}
+services.displayManager.sddm = {
+  enable = true;
+  theme = "breeze"; # directory name under ThemeDir
+};
 ```
 
-Rebuild with `sudo nixos-rebuild switch`. The GUI drop-in and declarative `theme=` can conflict — remove `/etc/sddm.conf.d/99-sddm-variant-manager.conf` if you switch fully to declarative management.
+The GUI drop-in and declarative `theme=` can conflict — remove `/etc/sddm.conf.d/99-sddm-variant-manager.conf` if you switch fully to declarative management.
+
+</details>
 
 ### Arch Linux / Manjaro
 
-There is no AUR package yet. Build the native `.pkg.tar.zst` from this tree with the bundled PKGBUILD (`packaging/arch/`, currently **2.3.0**):
+There is no AUR package yet. Build from `packaging/arch/` (currently **2.3.0**):
 
 ```bash
-# needs base-devel (makepkg, pacman)
 sudo pacman -S --needed base-devel
 cd packaging/arch
 ./build-package.sh
 sudo pacman -U ./sddm-variant-manager-*.pkg.tar.zst
 ```
 
-Or with **pamac**:
+Or `pamac install ./sddm-variant-manager-*.pkg.tar.zst --no-confirm`.
 
-```bash
-pamac install ./sddm-variant-manager-*.pkg.tar.zst --no-confirm
-```
+This installs to `/usr/bin` and adds a `.desktop` entry. Qt 6, Kirigami, and `breeze-icons` come in via `depends`. `ffmpeg` and `git` are `optdepends` (thumbnails and experimental GitHub clone).
 
-This installs to `/usr/bin`, adds a `.desktop` entry, and pulls Qt 6 / Kirigami / `breeze-icons` via `depends`. `ffmpeg` and `git` are optional (`optdepends`) — thumbnails and experimental GitHub clone.
+Remove later with `sudo pacman -R sddm-variant-manager`.
 
-To remove later:
-
-```bash
-sudo pacman -R sddm-variant-manager
-```
-
-For **video themes at the real login screen**, install greeter modules (the app itself already depends on `qt6-multimedia`):
+For **video at the real login screen**:
 
 ```bash
 sudo pacman -S --needed qt6-multimedia qt6-5compat qt6-svg
 ```
 
-On Hyprland / other Wayland compositors, also install `qt6-wayland` if the window does not show up.
+On Hyprland / other Wayland compositors, install `qt6-wayland` if the window does not appear.
 
-### Fedora
+### Fedora, openSUSE, Debian / Ubuntu
 
-No COPR yet. Install build dependencies, then compile:
+No COPR / OBS packages yet. Install build dependencies, then follow [From source](#from-source-manual).
+
+<details>
+<summary>Fedora</summary>
 
 ```bash
 sudo dnf install cmake extra-cmake-modules ninja-build gcc-c++ \
@@ -323,13 +235,12 @@ sudo dnf install cmake extra-cmake-modules ninja-build gcc-c++ \
   breeze-icon-theme ffmpeg git sddm polkit
 ```
 
-Then follow [From source](#from-source-manual) below. For video login themes:
+For video login themes: `sudo dnf install qt6-qtmultimedia qt6-qt5compat qt6-qtsvg`
 
-```bash
-sudo dnf install qt6-qtmultimedia qt6-qt5compat qt6-qtsvg
-```
+</details>
 
-### openSUSE (Tumbleweed)
+<details>
+<summary>openSUSE Tumbleweed</summary>
 
 ```bash
 sudo zypper install cmake extra-cmake-modules ninja gcc-c++ \
@@ -338,11 +249,14 @@ sudo zypper install cmake extra-cmake-modules ninja gcc-c++ \
   breeze6-icons ffmpeg git sddm polkit
 ```
 
-Then follow [From source](#from-source-manual). Package names on Leap may differ; prefer Tumbleweed for Qt 6 / KF6.
+Package names on Leap may differ; prefer Tumbleweed for Qt 6 / KF6.
 
-### Debian / Ubuntu
+</details>
 
-Need a release with **Qt 6 and KF6** (Debian testing/unstable, Ubuntu 25.04+). Ubuntu 24.04 LTS is often too old for this stack.
+<details>
+<summary>Debian / Ubuntu</summary>
+
+Need **Qt 6 and KF6** (Debian testing/unstable, Ubuntu 25.04+). Ubuntu 24.04 LTS is often too old.
 
 ```bash
 sudo apt install cmake extra-cmake-modules ninja-build g++ \
@@ -351,11 +265,11 @@ sudo apt install cmake extra-cmake-modules ninja-build g++ \
   breeze-icon-theme ffmpeg git sddm policykit-1
 ```
 
-Then follow [From source](#from-source-manual).
+</details>
 
 ### From source (manual)
 
-Use this after installing the distro packages in the sections above (or any other distro with Qt 6.5+ and KF6 Kirigami):
+After installing the distro packages above (or any distro with Qt 6.5+ and KF6 Kirigami):
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
@@ -363,72 +277,129 @@ cmake --build build
 sudo cmake --install build
 ```
 
-This installs the binary to `/usr/bin` and adds a `.desktop` entry. On NixOS prefer `nix profile add .` instead of `cmake --install` — an unpackaged binary will not find QML plugins.
+This installs the binary to `/usr/bin` and a `.desktop` entry. On NixOS prefer `nix profile add .` — an unpackaged binary will not find QML plugins.
 
 ## Usage
 
 1. Launch **SDDM Variant Manager** from the application menu (or `sddm-variant-manager`).
 2. Pick a theme in the **library** on the left.
-3. For multi-variant themes, choose a variant in the **filmstrip** under the preview, then **Apply as SDDM Theme** (optional “Also set as current SDDM theme”).
+3. For multi-variant themes, choose a variant in the **filmstrip**, then **Apply as SDDM Theme** (optional “Also set as current SDDM theme”).
 4. For simple themes (no `Themes/*.conf`), apply the theme as a whole.
 5. Use **Full SDDM Preview** to test the login screen.
-6. Use **Remove** on the theme stage to delete a writable installed theme (confirmation required). Read-only Nix store themes cannot be deleted from the app.
+6. Use **Remove** on the theme stage to delete a writable installed theme. Read-only Nix store themes cannot be deleted from the app.
 
-### Install themes
+Applying variants, system-wide installs, system theme removals, and writing SDDM config require Polkit (`pkexec`).
 
-1. Click **Install Theme** at the bottom of the library (or drag a folder/archive onto the window).
-2. Use **From file**: **Choose Archive…** for `.zip`, `.tar`, `.tar.gz` / `.tgz`, `.tar.xz` / `.txz`, `.tar.bz2`, `.tar.zst`, or **Choose Folder…** for a directory that contains one or more themes (`metadata.desktop`). You can also paste a path or **drag and drop** onto the main window.
-3. Optionally enable **Install system-wide** (needs admin password).
+### Install themes from a file
+
+1. Click **Install Theme** at the bottom of the library (or drop a folder/archive onto the window).
+2. **From file:** **Choose Archive…** (`.zip`, `.tar`, `.tar.gz` / `.tgz`, `.tar.xz` / `.txz`, `.tar.bz2`, `.tar.zst`) or **Choose Folder…** (must contain `metadata.desktop`). You can also paste a path.
+3. Optionally enable **Install system-wide** (admin password).
 4. Click **Install**.
 
-#### Install themes from GitHub (experimental)
+**Where it lands**
 
-This path is **BETA**. It needs `git` on `PATH`. Only **public GitHub** repositories are accepted (`https://github.com/user/repo` or `git@github.com:user/repo.git`).
+- Unchecked: `~/.local/share/sddm/themes/`
+- NixOS, system-wide: `/var/lib/sddm/themes/` (not `/usr/share/...`)
+- Arch / Manjaro, system-wide: `/usr/share/sddm/themes/`
 
-1. Open **Install Theme** → **GitHub**.
-2. Paste the repository URL.
-3. Choose user vs system-wide, then **Install**.
+Every folder with a valid `metadata.desktop` (+ QML entry) in the source is installed.
 
-The app clones the repo, **reads** `install.sh` / `install-sddm.sh` (it does **not** run the script), copies theme folders that have `metadata.desktop` into this distro’s SDDM directories, and falls back to scanning the clone if there is no usable script. If the script points at a non-standard location, the theme is still installed into the usual SDDM dirs and the status message says so. Extra steps in the script (fonts, Plymouth, …) are ignored.
+### Install themes from GitHub (experimental)
 
-#### Install locations
+**BETA.** Needs `git` on `PATH`. Only **public GitHub** repos (`https://github.com/user/repo` or `git@github.com:user/repo.git`).
 
-- Leave **Install system-wide** unchecked to install for your user only (`~/.local/share/sddm/themes/`).
-- On **NixOS**, check **Install system-wide** to install into `/var/lib/sddm/themes/` (not `/usr/share/...`).
-- On Arch / Manjaro, system-wide installs go to `/usr/share/sddm/themes/`.
+1. **Install Theme** → **GitHub**
+2. Paste the repository URL
+3. User vs system-wide, then **Install**
 
-All folders containing a valid `metadata.desktop` (+ QML entry) in the source are installed.
+The app clones the repo, **reads** `install.sh` / `install-sddm.sh` (it does **not** run the script), copies theme folders into this distro’s SDDM directories, and falls back to scanning the clone if there is no usable script. If the script points at a non-standard location, the theme is still installed into the usual SDDM dirs and the status message says so. Extra steps in the script (fonts, Plymouth, …) are ignored. The Nix package already wraps `git`.
 
-### Qt5 vs Qt6 themes
+### Qt 5 vs Qt 6 themes
 
-Many older themes (e.g. Layan-style Plasma greeters) use **QtQuick.Controls 1.x** and only work with a **Qt5** greeter. Modern systems often ship only **`sddm-greeter-qt6`**.
-
-The app detects the theme stack and your greeter stack and warns when they do not match:
+Many older themes (Layan-style Plasma greeters, …) use **QtQuick.Controls 1.x** and only work with a **Qt 5** greeter. Modern systems often ship only **`sddm-greeter-qt6`**.
 
 | Theme | System greeter | Result |
 |-------|----------------|--------|
-| Qt5 (Controls 1.x) | Qt6 only | Warning: incompatible at login |
-| Qt6 | Qt5 only | Warning: incompatible at login |
+| Qt 5 (Controls 1.x) | Qt 6 only | Warning: incompatible at login |
+| Qt 6 | Qt 5 only | Warning: incompatible at login |
 | Matching stacks | Matching | OK |
 
-Prefer Qt6 themes on modern SDDM, or use a Qt5 greeter if your distro still provides `sddm-greeter`.
+Prefer Qt 6 themes on modern SDDM, or keep a Qt 5 greeter if your distro still provides `sddm-greeter`.
 
-### Close full SDDM preview
+### Close the full SDDM preview
 
-The preview opens the real SDDM greeter in test mode and covers the entire screen. **SDDM Variant Manager stays open in the background** — you need a separate way to dismiss the preview window.
+The preview is the real greeter in test mode and covers the whole screen. **This app stays open in the background.**
 
-#### On KDE Plasma
+**Plasma:** Alt+Tab → **SDDM Variant Manager** → **Close preview**
 
-1. Press **Alt+Tab**
-2. Select **SDDM Variant Manager**
-3. Click **Close preview**
+**Hyprland:** focus the preview (usually already focused) and use your close-window bind (often `Super+Q`).
 
-#### On Hyprland
+## Requirements
 
-1. Focus the preview window (usually already focused).
-2. Press your Hyprland **close window** keybind (often `Super+Q` or similar).
+**Required**
 
-Applying variants, system-wide installs, removals of system themes, and writing SDDM config require administrator authentication via Polkit.
+- Qt 6 and KF6 Kirigami (a Plasma install usually pulls these on Arch/Manjaro)
+- KF6 Archive (`karchive`) — zip / tar when installing from a local file
+- SDDM
+- `sddm-greeter-qt6` and/or `sddm-greeter` (Qt 5 themes prefer the latter when available)
+- `pkexec` (PolicyKit) for system theme files and system-wide installs
+
+```bash
+# Arch / Manjaro (if not already pulled in with Plasma)
+sudo pacman -S karchive
+```
+
+**Strongly recommended — `ffmpeg`**
+
+Sharp thumbnails from video backgrounds. Without it, variant thumbnails fall back to low-resolution GIF previews.
+
+```bash
+# Arch / Manjaro
+sudo pacman -S ffmpeg
+
+# NixOS user profile (not needed if you install this app via the flake — ffmpeg is wrapped)
+nix profile add nixpkgs#ffmpeg
+```
+
+**Optional — `git`**
+
+Needed for **Install Theme → GitHub**. The app clones the repo and reads `install.sh`; it never runs the script. The Nix package wraps `git`.
+
+```bash
+sudo pacman -S git   # Arch / Manjaro
+```
+
+## Build
+
+**CMake**
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/sddm-variant-manager
+```
+
+Open the project in **Qt Creator** via `CMakeLists.txt`.
+
+**Nix flake**
+
+```bash
+nix run .          # one-shot
+nix develop        # cmake, Qt 6, Kirigami, git, …
+cmake -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+./build/sddm-variant-manager
+```
+
+On NixOS you can also use `shell.nix` / `./qtcreator-dev.sh` so Qt Creator sees the correct QML plugin paths.
+
+Self-test (folder install, remove, `install.sh` parser fixtures, archive install; **no network**):
+
+```bash
+sddm-variant-manager --qa-self-test
+# or: ./build/Desktop_Nix_Qt6-Debug/sddm-variant-manager --qa-self-test
+```
 
 ## License
 
