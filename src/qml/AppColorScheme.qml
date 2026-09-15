@@ -79,6 +79,9 @@ QtObject {
     readonly property color scrimLight: Qt.rgba(0.0784, 0.0627, 0.1569, .30)
 
     // ── Resolved (mode-aware) ─────────────────────────────────────
+    // Opaque window background — shows only behind/before the full-bleed
+    // stage (first frame, and the Kirigami.Page fallback behind it).
+    readonly property color background: isDark ? "#12141A" : "#F4F6FB"
     readonly property color panelGlass: isDark ? panelGlassDark : panelGlassLight
     readonly property color barGlass: isDark ? barGlassDark : barGlassLight
     readonly property color panelBorder: isDark ? panelBorderDark : panelBorderLight
