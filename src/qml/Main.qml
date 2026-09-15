@@ -1504,71 +1504,109 @@ Kirigami.ApplicationWindow {
                     }
                 }
 
-                Row {
+                FontMetrics {
+                    id: variantCaptionMetrics
+                    font.family: root.bodyFont
+                    font.pixelSize: 12
+                }
+
+                ListView {
+                    id: variantFilmstrip
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 105 + 7 + variantCaptionMetrics.height
+                    orientation: ListView.Horizontal
                     spacing: 12
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: currentVariants
+                    currentIndex: root.selectedVariantIndex
 
-                    Repeater {
-                        model: currentVariants
-                        delegate: Item {
-                            id: variantCardRoot
-                            required property var modelData
-                            required property int index
+                    // currentIndex + highlightFollowsCurrentItem alone did not
+                    // reliably scroll a newly selected (possibly offscreen)
+                    // card into view here — call positionViewAtIndex directly
+                    // whenever the selection or the model itself changes.
+                    function revealSelection() {
+                        if (root.selectedVariantIndex >= 0 && root.selectedVariantIndex < count)
+                            positionViewAtIndex(root.selectedVariantIndex, ListView.Contain)
+                    }
+                    onModelChanged: Qt.callLater(revealSelection)
+
+                    Connections {
+                        target: root
+                        function onSelectedVariantIndexChanged() { variantFilmstrip.revealSelection() }
+                    }
+
+                    // Horizontal-only list: map the (usually vertical) mouse
+                    // wheel onto contentX so it's reachable without a
+                    // touchpad/trackball, same as dragging the strip.
+                    WheelHandler {
+                        onWheel: function(event) {
+                            const delta = event.angleDelta.y !== 0 ? event.angleDelta.y : event.angleDelta.x
+                            variantFilmstrip.contentX = Math.max(0, Math.min(
+                                Math.max(0, variantFilmstrip.contentWidth - variantFilmstrip.width),
+                                variantFilmstrip.contentX - delta))
+                        }
+                    }
+
+                    delegate: Item {
+                        id: variantCardRoot
+                        required property var modelData
+                        required property int index
+                        width: 186
+                        height: 105 + 7 + variantCaptionMetrics.height
+
+                        readonly property bool variantSelected: root.selectedVariantIndex === index
+                        readonly property bool variantActive: modelData.isActive === true
+
+                        Rectangle {
+                            id: variantCard
                             width: 186
-                            height: 105 + 19
+                            height: 105
+                            radius: appColors.radiusVariantCard
+                            color: appColors.fieldBg
+                            clip: true
+                            border.width: variantActive ? 2 : (variantSelected ? 1.5 : 0)
+                            border.color: variantActive ? appColors.primary
+                                        : (variantSelected ? Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.55) : "transparent")
+                            scale: variantHover.hovered ? 1.02 : 1.0
+                            Behavior on scale { NumberAnimation { duration: 120 } }
 
-                            readonly property bool variantSelected: root.selectedVariantIndex === index
-                            readonly property bool variantActive: modelData.isActive === true
+                            layer.enabled: true
+                            layer.effect: null
 
                             Rectangle {
-                                id: variantCard
-                                width: 186
-                                height: 105
-                                radius: appColors.radiusVariantCard
-                                color: appColors.fieldBg
-                                clip: true
-                                border.width: variantActive ? 2 : (variantSelected ? 1.5 : 0)
-                                border.color: variantActive ? appColors.primary
-                                            : (variantSelected ? Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.55) : "transparent")
-                                scale: variantHover.hovered ? 1.02 : 1.0
-                                Behavior on scale { NumberAnimation { duration: 120 } }
-
-                                layer.enabled: true
-                                layer.effect: null
-
-                                Rectangle {
-                                    z: -1
-                                    anchors.fill: parent
-                                    anchors.topMargin: 6
-                                    radius: parent.radius
-                                    color: appColors.isDark ? Qt.rgba(0, 0, 0, .35) : Qt.rgba(0.1176, 0.098, 0.2745, .18)
-                                }
-
-                                VariantThumbnail {
-                                    anchors.fill: parent
-                                    mediaSource: modelData.thumbnailPath ? "file://" + modelData.thumbnailPath : ""
-                                }
-
-                                HoverHandler { id: variantHover }
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.selectedVariantIndex = index
-                                }
+                                z: -1
+                                anchors.fill: parent
+                                anchors.topMargin: 6
+                                radius: parent.radius
+                                color: appColors.isDark ? Qt.rgba(0, 0, 0, .35) : Qt.rgba(0.1176, 0.098, 0.2745, .18)
                             }
 
-                            Label {
-                                anchors.top: variantCard.bottom
-                                anchors.topMargin: 7
-                                anchors.left: parent.left
-                                anchors.leftMargin: 2
-                                width: variantCard.width
-                                text: (modelData.displayName || modelData.id || "") + (variantCardRoot.variantActive ? " · applied" : "")
-                                font.family: root.bodyFont
-                                font.pixelSize: 12
-                                color: appColors.textSecondary
-                                elide: Text.ElideRight
+                            VariantThumbnail {
+                                anchors.fill: parent
+                                mediaSource: modelData.thumbnailPath ? "file://" + modelData.thumbnailPath : ""
                             }
+
+                            HoverHandler { id: variantHover }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.selectedVariantIndex = index
+                            }
+                        }
+
+                        Label {
+                            anchors.top: variantCard.bottom
+                            anchors.topMargin: 7
+                            anchors.left: parent.left
+                            anchors.leftMargin: 2
+                            width: variantCard.width
+                            text: (modelData.displayName || modelData.id || "") + (variantCardRoot.variantActive ? " · applied" : "")
+                            font.family: root.bodyFont
+                            font.pixelSize: 12
+                            color: appColors.textSecondary
+                            elide: Text.ElideRight
                         }
                     }
                 }
