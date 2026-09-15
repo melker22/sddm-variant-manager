@@ -32,6 +32,7 @@ optdepends=(
   'qt6-wayland: Wayland sessions (Hyprland, Sway, Plasma Wayland)'
   'qt6-5compat: older themes that need GraphicalEffects via Qt5Compat'
   'qt6-multimedia: video backgrounds in the real SDDM greeter'
+  'layer-shell-qt: floating status/exit bar anchored correctly over the real greeter during Test Greeter, on wlr-layer-shell compositors (Hyprland, Sway); silently omitted without it'
 )
 source=("$pkgname-$pkgver.tar.gz")
 # build-package.sh replaces this with the tarball checksum before makepkg.

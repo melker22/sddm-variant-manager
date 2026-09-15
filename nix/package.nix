@@ -57,6 +57,11 @@ stdenv.mkDerivation {
     # Explicit so Hyprland/non-Plasma sessions still resolve UI icons when the
     # active GTK icon theme is missing or incomplete.
     kdePackages.breeze-icons
+    # QML org.kde.layershell — anchors the Test Greeter status/exit bar to a
+    # screen edge on wlr-layer-shell compositors (Hyprland, Sway). Loaded via
+    # a Loader at runtime, so its absence just drops that overlay instead of
+    # failing the app.
+    kdePackages.layer-shell-qt
     gsettings-desktop-schemas
     gtk3
     glib

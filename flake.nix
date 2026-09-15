@@ -46,6 +46,7 @@
             qt6.qtsvg
             qt6.qtwayland
             kdePackages.qqc2-desktop-style
+            kdePackages.layer-shell-qt
           ];
           qmlPath = pkgs.lib.makeSearchPath "lib/qt-6/qml" qmlPackages;
           pluginPath = pkgs.lib.makeSearchPath "lib/qt-6/plugins" (
@@ -57,6 +58,7 @@
               qt6.qtsvg
               qt6.qtwayland
               kdePackages.qqc2-desktop-style
+              kdePackages.layer-shell-qt
             ]
           );
         in
@@ -84,6 +86,7 @@
               kdePackages.ki18n
               kdePackages.karchive
               kdePackages.qqc2-desktop-style
+              kdePackages.layer-shell-qt
 
               # Native GTK file dialogs need schemas or GLib aborts the process.
               gsettings-desktop-schemas
