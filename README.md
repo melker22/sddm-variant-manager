@@ -5,11 +5,11 @@
 [![Nix flake](https://img.shields.io/badge/Nix-flake-informational?logo=nixos)](https://github.com/melker22/sddm-variant-manager#nixos)
 [![Qt 6](https://img.shields.io/badge/Qt-6-41CD52?logo=qt)](https://www.qt.io/)
 
-Browse, preview, apply, install, and remove **SDDM** login themes without logging out every time. Works on **Hyprland**, **Plasma**, and any other desktop that uses SDDM. Multi-variant collections such as [ZenMatrix Collection](https://github.com/OminduD/sddm-themes) show up as a filmstrip under a large 16:9 preview.
+Browse, preview, apply, install, and remove **SDDM** login themes without logging out every time. Works on **Hyprland**, **Plasma**, and any other desktop that uses SDDM. The selected theme's preview fills the whole window — the library, variant filmstrip, and controls float as frosted-glass panels above it. Multi-variant collections such as [ZenMatrix Collection](https://github.com/OminduD/sddm-themes) show up as a filmstrip along the bottom edge.
 
 Built with **Qt 6** and **Kirigami**. You do not need a Plasma session day to day — only SDDM and the libraries listed under [Requirements](#requirements).
 
-**Current version: 2.3.0**
+**Current version: 2.4.0**
 
 <table>
   <tr>
@@ -21,6 +21,8 @@ Built with **Qt 6** and **Kirigami**. You do not need a Plasma session day to da
     <td><img src="screenshot-dark.png" alt="SDDM Variant Manager in dark mode"></td>
   </tr>
 </table>
+
+Prefer the previous sidebar + card look? It's preserved as-is on the [`design/classic-ui`](https://github.com/melker22/sddm-variant-manager/tree/design/classic-ui) branch.
 
 ## Contents
 
@@ -53,9 +55,11 @@ This app fixes that: browse variants, preview backgrounds, run the **real greete
   - `/run/current-system/sw/share/sddm/themes/` and `/var/lib/sddm/themes/` (**NixOS**)
   - `~/.local/share/sddm/themes/` (per-user)
   - extra roots from `XDG_DATA_DIRS`
-- Multi-variant themes: horizontal filmstrip, apply a variant, large 16:9 stage
+- Full-window preview: the selected theme's background fills the whole app, with the library, filmstrip, and controls floating as frosted-glass panels on top
+- Multi-variant themes: horizontal filmstrip along the bottom edge, apply a variant instantly
 - Simple themes: apply as the current SDDM theme and open a full greeter preview
 - Sharp static thumbnails for video variants (cached JPEG frames via `ffmpeg`)
+- System diagnostics panel (⚙): greeter binary/stack, missing greeter modules, scanned theme directories, `ffmpeg`/`git` availability, NixOS notes
 
 **Install and remove**
 
@@ -65,7 +69,7 @@ This app fixes that: browse variants, preview backgrounds, run the **real greete
 
 **Compatibility**
 
-- Full login preview via `sddm-greeter` / `sddm-greeter-qt6 --test-mode` (picked automatically)
+- Full login preview via `sddm-greeter` / `sddm-greeter-qt6 --test-mode` (picked automatically); on Wayland compositors with `layer-shell-qt` (Hyprland, Sway) a small status chip and exit bar float over the real greeter
 - Warns when a theme’s Qt 5 / Qt 6 stack does not match your greeter
 - Detects missing greeter modules (QtMultimedia, Qt5Compat, …). Themes are **never rewritten** on disk for real login
 - **NixOS-aware:** system installs go to `/var/lib/sddm/themes/`; activating a theme writes `/etc/sddm.conf.d/` (no rebuild)
@@ -76,7 +80,7 @@ The app is **not** in official distro repos yet. Use one of the paths below.
 
 ### NixOS
 
-Enable flakes (`nix-command` + `flakes`). Do **not** copy a debug `build/` binary into the system — the flake wraps Qt, Kirigami, QtMultimedia, `ffmpeg`, and `git`.
+Enable flakes (`nix-command` + `flakes`). Do **not** copy a debug `build/` binary into the system — the flake wraps Qt, Kirigami, QtMultimedia, `layer-shell-qt`, `ffmpeg`, and `git`.
 
 **Try without installing**
 
@@ -197,7 +201,7 @@ The GUI drop-in and declarative `theme=` can conflict — remove `/etc/sddm.conf
 
 ### Arch Linux / Manjaro
 
-There is no AUR package yet. Build from `packaging/arch/` (currently **2.3.0**):
+There is no AUR package yet. Build from `packaging/arch/` (currently **2.4.0**):
 
 ```bash
 sudo pacman -S --needed base-devel
@@ -282,11 +286,12 @@ This installs the binary to `/usr/bin` and a `.desktop` entry. On NixOS prefer `
 ## Usage
 
 1. Launch **SDDM Variant Manager** from the application menu (or `sddm-variant-manager`).
-2. Pick a theme in the **library** on the left.
-3. For multi-variant themes, choose a variant in the **filmstrip**, then **Apply as SDDM Theme** (optional “Also set as current SDDM theme”).
-4. For simple themes (no `Themes/*.conf`), apply the theme as a whole.
-5. Use **Full SDDM Preview** to test the login screen.
-6. Use **Remove** on the theme stage to delete a writable installed theme. Read-only Nix store themes cannot be deleted from the app.
+2. Pick a theme in the **library** rail on the left — its background fills the window immediately.
+3. For multi-variant themes, choose a variant in the **filmstrip**, then **Apply variant** (optional “Also set as current SDDM theme”).
+4. For simple themes (no `Themes/*.conf`), **Apply theme** applies it as a whole.
+5. Use **Test greeter** to run the real login screen in test mode.
+6. Use the **⋯** menu next to Apply to open the theme's folder, copy its path, or **Remove** a writable installed theme. Read-only Nix store themes cannot be deleted from the app.
+7. Click the **⚙** icon in the header for system diagnostics — greeter binary/stack, missing modules, scanned directories, and tool availability.
 
 Applying variants, system-wide installs, system theme removals, and writing SDDM config require Polkit (`pkexec`).
 
@@ -331,9 +336,11 @@ Prefer Qt 6 themes on modern SDDM, or keep a Qt 5 greeter if your distro still p
 
 The preview is the real greeter in test mode and covers the whole screen. **This app stays open in the background.**
 
-**Plasma:** Alt+Tab → **SDDM Variant Manager** → **Close preview**
+**Hyprland / Sway** (with `layer-shell-qt` installed): a small status chip floats at the top and an exit bar with **Close preview** floats at the bottom, right over the real greeter — no window switching needed.
 
-**Hyprland:** focus the preview (usually already focused) and use your close-window bind (often `Super+Q`).
+**Plasma, or without `layer-shell-qt`:** Alt+Tab → **SDDM Variant Manager** → **Close preview**
+
+**Hyprland without the overlay:** focus the preview (usually already focused) and use your close-window bind (often `Super+Q`).
 
 ## Requirements
 
@@ -368,6 +375,14 @@ Needed for **Install Theme → GitHub**. The app clones the repo and reads `inst
 
 ```bash
 sudo pacman -S git   # Arch / Manjaro
+```
+
+**Optional — `layer-shell-qt`**
+
+Anchors the Test Greeter status chip and exit bar to the screen edges on `wlr-layer-shell` Wayland compositors (Hyprland, Sway). Without it, Test Greeter still works — you just lose that floating overlay and fall back to Alt+Tab / your close-window bind. The Nix package already includes it.
+
+```bash
+sudo pacman -S layer-shell-qt   # Arch / Manjaro
 ```
 
 ## Build

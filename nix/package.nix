@@ -15,7 +15,7 @@
 
 stdenv.mkDerivation {
   pname = "sddm-variant-manager";
-  version = "2.3.0";
+  version = "2.4.0";
 
   src = lib.cleanSourceWith {
     src = ../.;

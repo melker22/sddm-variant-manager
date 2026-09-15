@@ -60,7 +60,7 @@ Kirigami.ApplicationWindow {
     property int installTabIndex: 0
     property bool diagnosticsOpen: false
     readonly property string closePreviewHelp: "The real greeter is covering this window. Use the floating bar to close the preview, or switch back with Alt+Tab / Super+Q."
-    readonly property string appVersion: "2.3.0"
+    readonly property string appVersion: "2.4.0"
     readonly property bool canRemoveCurrentTheme: selectedThemeIndex >= 0
         && currentTheme.path
         && themeInstaller.canRemoveTheme(currentTheme.path)
