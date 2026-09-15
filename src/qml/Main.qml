@@ -617,6 +617,39 @@ Kirigami.ApplicationWindow {
         Behavior on color { ColorAnimation { duration: 120 } }
     }
 
+    // Same look as GlassSecondaryChrome, but switches to a solid primary
+    // fill when `emphasize` is true (e.g. the rail's Install button when the
+    // library is empty) — one Item so hover/down bindings stay live,
+    // avoiding the Component-id-as-background trap that silently drops
+    // reactivity (background: someComponentId does not instantiate it).
+    component AdaptiveChrome: Rectangle {
+        id: adaptiveChrome
+        property Item control
+        property bool emphasize: false
+        radius: appColors.radiusButton
+        color: {
+            if (emphasize) {
+                if (!control || !control.enabled)
+                    return appColors.disabledPrimary
+                if (control.down)
+                    return appColors.primaryPressed
+                if (control.hovered)
+                    return appColors.primaryHover
+                return appColors.primary
+            }
+            if (!control)
+                return appColors.isDark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0.12, 0.10, 0.27, 0.05)
+            if (control.down)
+                return appColors.isDark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0.12, 0.10, 0.27, 0.09)
+            if (control.hovered)
+                return appColors.isDark ? Qt.rgba(1, 1, 1, 0.11) : Qt.rgba(0.12, 0.10, 0.27, 0.07)
+            return appColors.isDark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0.12, 0.10, 0.27, 0.05)
+        }
+        border.width: emphasize ? 0 : 1
+        border.color: appColors.isDark ? Qt.rgba(1, 1, 1, 0.14) : "#E4E2EE"
+        Behavior on color { ColorAnimation { duration: 120 } }
+    }
+
     component AppCheckIndicator: Rectangle {
         property Item control
         property bool onGlass: true
@@ -1244,17 +1277,9 @@ Kirigami.ApplicationWindow {
                             }
                             Item { Layout.fillWidth: true }
                         }
-                        background: themeScanner.themeCount === 0
-                            ? primaryInstallChrome
-                            : secondaryInstallChrome
-
-                        Component {
-                            id: primaryInstallChrome
-                            PrimaryChrome { control: installPrimaryBtn }
-                        }
-                        Component {
-                            id: secondaryInstallChrome
-                            GlassSecondaryChrome { control: installPrimaryBtn }
+                        background: AdaptiveChrome {
+                            control: installPrimaryBtn
+                            emphasize: themeScanner.themeCount === 0
                         }
                     }
                 }
@@ -1723,7 +1748,7 @@ Kirigami.ApplicationWindow {
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
-                        background: Item {}
+                        background: GlassIconButton { control: overflowBtn }
 
                         Menu {
                             id: overflowMenu
