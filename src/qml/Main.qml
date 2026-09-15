@@ -1175,7 +1175,6 @@ Kirigami.ApplicationWindow {
                 anchors.leftMargin: appColors.marginOuter
                 anchors.bottomMargin: root.stageBottomReserve
                 width: appColors.railWidth
-                visible: themeScanner.themeCount > 0
                 backdropSource: stageBackdrop
                 cornerRadius: appColors.radiusPanel
                 blurAmount: appColors.blurRadius
@@ -1185,6 +1184,10 @@ Kirigami.ApplicationWindow {
 
                 Behavior on anchors.bottomMargin { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
+                // The panel itself always stays up (per the empty-library
+                // design: "LIBRARY · 0" + empty message + emphasized Install
+                // button live inside it) — only the middle content and the
+                // Install button's emphasis switch on themeCount.
                 ColumnLayout {
                     anchors.fill: parent
                     spacing: 0
@@ -1225,6 +1228,7 @@ Kirigami.ApplicationWindow {
                         id: themeListView
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        visible: themeScanner.themeCount > 0
                         clip: true
                         spacing: 2
                         leftMargin: 6
@@ -1249,6 +1253,37 @@ Kirigami.ApplicationWindow {
                             selected: root.selectedThemeIndex === modelData
                             onClicked: root.selectedThemeIndex = modelData
                         }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.leftMargin: 14
+                        Layout.rightMargin: 14
+                        spacing: 8
+                        visible: themeScanner.themeCount === 0
+
+                        Item { Layout.fillHeight: true }
+
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            text: "No themes found"
+                            font.family: root.bodyFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 14
+                            color: Qt.rgba(1, 1, 1, .62)
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            text: "Nothing in the default SDDM theme directories yet."
+                            font.family: root.bodyFont
+                            font.pixelSize: 12
+                            color: Qt.rgba(1, 1, 1, .4)
+                        }
+
+                        Item { Layout.fillHeight: true }
                     }
 
                     Button {
@@ -1282,39 +1317,6 @@ Kirigami.ApplicationWindow {
                             emphasize: themeScanner.themeCount === 0
                         }
                     }
-                }
-
-                ColumnLayout {
-                    anchors.top: parent.top
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    anchors.margins: 14
-                    anchors.topMargin: 44
-                    spacing: 8
-                    visible: themeScanner.themeCount === 0
-
-                    Item { Layout.fillHeight: true }
-
-                    Label {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: "No themes found"
-                        font.family: root.bodyFont
-                        font.weight: Font.Bold
-                        font.pixelSize: 14
-                        color: Qt.rgba(1, 1, 1, .62)
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: "Nothing in the default SDDM theme directories yet."
-                        font.family: root.bodyFont
-                        font.pixelSize: 12
-                        color: Qt.rgba(1, 1, 1, .4)
-                    }
-
-                    Item { Layout.fillHeight: true }
                 }
             }
 
