@@ -663,6 +663,7 @@ Kirigami.ApplicationWindow {
             : Qt.rgba(1, 1, 1, .35)
 
         Kirigami.Icon {
+            isMask: true
             anchors.centerIn: parent
             width: 10
             height: 10
@@ -690,6 +691,7 @@ Kirigami.ApplicationWindow {
         contentItem: RowLayout {
             spacing: 10
             Kirigami.Icon {
+                isMask: true
                 Layout.preferredWidth: 14
                 Layout.preferredHeight: 14
                 source: menuItemRoot.menuIcon
@@ -983,6 +985,7 @@ Kirigami.ApplicationWindow {
                         border.color: Qt.rgba(0.5451, 0.4039, 0.949, .4)
 
                         Kirigami.Icon {
+                            isMask: true
                             anchors.centerIn: parent
                             width: 22
                             height: 22
@@ -1123,6 +1126,7 @@ Kirigami.ApplicationWindow {
                             spacing: 8
 
                             Kirigami.Icon {
+                                isMask: true
                                 source: "edit-find"
                                 Layout.preferredWidth: 12
                                 Layout.preferredHeight: 12
@@ -1187,6 +1191,7 @@ Kirigami.ApplicationWindow {
                         ToolTip.text: "Rescan themes (F5)"
                         ToolTip.delay: Kirigami.Units.toolTipDelay
                         contentItem: Kirigami.Icon {
+                            isMask: true
                             source: "view-refresh"
                             color: appColors.textSecondary
                         }
@@ -1202,6 +1207,7 @@ Kirigami.ApplicationWindow {
                         ToolTip.text: "System diagnostics"
                         ToolTip.delay: Kirigami.Units.toolTipDelay
                         contentItem: Kirigami.Icon {
+                            isMask: true
                             source: "configure"
                             color: appColors.textSecondary
                         }
@@ -1343,6 +1349,7 @@ Kirigami.ApplicationWindow {
                             spacing: 9
                             Item { Layout.fillWidth: true }
                             Kirigami.Icon {
+                                isMask: true
                                 source: "list-add"
                                 Layout.preferredWidth: 13
                                 Layout.preferredHeight: 13
@@ -1391,6 +1398,7 @@ Kirigami.ApplicationWindow {
                         spacing: 9
 
                         Kirigami.Icon {
+                            isMask: true
                             source: root.previewIsVideo ? "media-playback-start"
                                   : (root.previewIsGif ? "image-gif" : "image-x-generic")
                             Layout.preferredWidth: 12
@@ -1779,6 +1787,7 @@ Kirigami.ApplicationWindow {
                         contentItem: RowLayout {
                             spacing: 9
                             Kirigami.Icon {
+                                isMask: true
                                 source: greeterPreview.running ? "window-close" : "media-playback-start"
                                 Layout.preferredWidth: 13
                                 Layout.preferredHeight: 13
@@ -1805,6 +1814,7 @@ Kirigami.ApplicationWindow {
                         contentItem: RowLayout {
                             spacing: 10
                             Kirigami.Icon {
+                                isMask: true
                                 source: "dialog-ok-apply"
                                 Layout.preferredWidth: 13
                                 Layout.preferredHeight: 13
@@ -2456,6 +2466,7 @@ Kirigami.ApplicationWindow {
                             spacing: 10
 
                             Kirigami.Icon {
+                                isMask: true
                                 Layout.preferredWidth: 16
                                 Layout.preferredHeight: 16
                                 Layout.alignment: Qt.AlignTop
@@ -2482,6 +2493,7 @@ Kirigami.ApplicationWindow {
                         spacing: 8
 
                         Kirigami.Icon {
+                            isMask: true
                             Layout.preferredWidth: 14
                             Layout.preferredHeight: 14
                             source: "dialog-information"
@@ -2557,6 +2569,7 @@ Kirigami.ApplicationWindow {
                         spacing: 10
 
                         Kirigami.Icon {
+                            isMask: true
                             Layout.preferredWidth: 14
                             Layout.preferredHeight: 14
                             source: "folder"
@@ -2641,6 +2654,7 @@ Kirigami.ApplicationWindow {
                                 running: visible
                             }
                             Kirigami.Icon {
+                                isMask: true
                                 Layout.preferredWidth: 13
                                 Layout.preferredHeight: 13
                                 visible: !themeInstaller.installing
@@ -2809,6 +2823,7 @@ Kirigami.ApplicationWindow {
                     contentItem: RowLayout {
                         spacing: 9
                         Kirigami.Icon {
+                            isMask: true
                             Layout.preferredWidth: 13
                             Layout.preferredHeight: 13
                             source: "edit-delete"
