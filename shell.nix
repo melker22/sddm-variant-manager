@@ -9,6 +9,7 @@ let
     qt6.qtsvg
     qt6.qtwayland
     kdePackages.qqc2-desktop-style
+    kdePackages.layer-shell-qt
   ];
 
   qmlPath = pkgs.lib.makeSearchPath "lib/qt-6/qml" qmlPackages;
@@ -21,6 +22,7 @@ let
       qt6.qtsvg
       qt6.qtwayland
       kdePackages.qqc2-desktop-style
+      kdePackages.layer-shell-qt
     ]
   );
 in
@@ -45,6 +47,7 @@ pkgs.mkShell {
     kdePackages.ki18n
     kdePackages.karchive
     kdePackages.qqc2-desktop-style
+    kdePackages.layer-shell-qt
 
     # File dialogs via QT_QPA_PLATFORMTHEME=gtk3 need these or GLib aborts.
     gsettings-desktop-schemas

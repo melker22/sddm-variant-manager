@@ -5,7 +5,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
-import QtQuick.Window
 import QtMultimedia
 import org.kde.kirigami as Kirigami
 import "."
@@ -65,6 +64,10 @@ Kirigami.ApplicationWindow {
     readonly property bool canRemoveCurrentTheme: selectedThemeIndex >= 0
         && currentTheme.path
         && themeInstaller.canRemoveTheme(currentTheme.path)
+    readonly property bool canApplyCurrentSelection: selectedThemeIndex >= 0 && (
+        currentThemeHasVariants
+            ? (!currentThemeReadOnly && currentVariant.configFile !== undefined)
+            : currentTheme.id !== undefined)
 
     readonly property var currentTheme: {
         variantsRevision
@@ -1678,10 +1681,7 @@ Kirigami.ApplicationWindow {
                         implicitHeight: 40
                         leftPadding: 22
                         rightPadding: 22
-                        enabled: selectedThemeIndex >= 0 && (
-                            currentThemeHasVariants
-                                ? (!currentThemeReadOnly && currentVariant.configFile !== undefined)
-                                : currentTheme.id !== undefined)
+                        enabled: root.canApplyCurrentSelection
                         onClicked: root.applyCurrentSelection()
                         contentItem: RowLayout {
                             spacing: 10
@@ -2701,137 +2701,31 @@ Kirigami.ApplicationWindow {
     }
 
     // ── Screen 8: floating chip + exit bar over the real greeter ────────
-    // Sized to their own content (not full-screen), so clicks outside them
-    // fall straight through to the SDDM test-mode greeter underneath —
-    // no input-mask hacks, no new C++.
-    Window {
-        id: greeterChipWindow
-        visible: greeterPreview.running
-        flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
-        color: "transparent"
-        width: chipContent.implicitWidth + 32
-        height: chipContent.implicitHeight + 18
-        x: Math.round((Screen.width - width) / 2)
-        y: 26
+    // Loaded on demand from a separate file (never a static import) because
+    // it needs org.kde.layershell to anchor to a screen edge on Wayland —
+    // a plain Window's x/y is not honored there, which used to collide both
+    // panels into the compositor's own default placement. A Loader isolates
+    // a missing/unavailable layer-shell module to just this feature (no
+    // overlay) instead of failing the whole document.
+    Loader {
+        id: greeterOverlayLoader
+        active: greeterPreview.running
+        source: "GreeterPreviewOverlay.qml"
 
-        Rectangle {
-            anchors.fill: parent
-            radius: height / 2
-            color: Qt.rgba(0.0549, 0.0588, 0.0824, .72)
-            border.width: 1
-            border.color: Qt.rgba(1, 1, 1, .14)
-
-            RowLayout {
-                id: chipContent
-                anchors.centerIn: parent
-                spacing: 10
-
-                Rectangle {
-                    Layout.preferredWidth: 7
-                    Layout.preferredHeight: 7
-                    radius: 3.5
-                    color: "#42D68A"
-                }
-                Label {
-                    text: "Real greeter in test mode · " + (root.currentTheme.name || root.currentTheme.id || "")
-                          + (root.currentThemeHasVariants && root.currentVariant.displayName ? (" · " + root.currentVariant.displayName) : "")
-                    font.family: root.bodyFont
-                    font.pixelSize: 13
-                    color: "#ECEAF3"
-                }
-            }
+        onLoaded: {
+            item.headingFont = root.headingFont
+            item.bodyFont = root.bodyFont
+            item.themeLabel = Qt.binding(function() {
+                return "Real greeter in test mode · " + (root.currentTheme.name || root.currentTheme.id || "")
+                    + (root.currentThemeHasVariants && root.currentVariant.displayName ? (" · " + root.currentVariant.displayName) : "")
+            })
+            item.applyEnabled = Qt.binding(function() { return root.canApplyCurrentSelection })
+            item.applyRequested.connect(root.applyCurrentSelection)
+            item.closeRequested.connect(greeterPreview.stopPreview)
         }
-    }
-
-    Window {
-        id: greeterExitBarWindow
-        visible: greeterPreview.running
-        flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
-        color: "transparent"
-        width: exitBarContent.implicitWidth + 34
-        height: 64
-        x: Math.round((Screen.width - width) / 2)
-        y: Screen.height - 34 - height
-
-        Rectangle {
-            anchors.fill: parent
-            radius: 16
-            color: Qt.rgba(0.0549, 0.0588, 0.0824, .74)
-            border.width: 1
-            border.color: Qt.rgba(1, 1, 1, .14)
-
-            RowLayout {
-                id: exitBarContent
-                anchors.centerIn: parent
-                spacing: 18
-
-                ColumnLayout {
-                    spacing: 3
-                    Label {
-                        text: "You're looking at the real login"
-                        font.family: root.headingFont
-                        font.weight: Font.Bold
-                        font.pixelSize: 15
-                        color: "#F2F1F7"
-                    }
-                    Label {
-                        text: "Variant Manager stays open behind it — Hyprland: Super+Q · Plasma: Alt+Tab"
-                        font.family: root.bodyFont
-                        font.pixelSize: 12
-                        color: Qt.rgba(1, 1, 1, .5)
-                    }
-                }
-
-                Rectangle {
-                    Layout.preferredWidth: 1
-                    Layout.preferredHeight: 28
-                    color: Qt.rgba(1, 1, 1, .14)
-                }
-
-                Button {
-                    id: applyFromPreviewBtn
-                    implicitHeight: 42
-                    leftPadding: 20
-                    rightPadding: 20
-                    enabled: selectedThemeIndex >= 0 && (
-                        currentThemeHasVariants
-                            ? (!currentThemeReadOnly && currentVariant.configFile !== undefined)
-                            : currentTheme.id !== undefined)
-                    onClicked: root.applyCurrentSelection()
-                    contentItem: Label {
-                        text: "Apply this variant"
-                        font.family: root.bodyFont
-                        font.weight: Font.Bold
-                        font.pixelSize: 14
-                        color: "#F2F1F7"
-                    }
-                    background: Rectangle {
-                        radius: 11
-                        color: applyFromPreviewBtn.hovered ? Qt.rgba(1, 1, 1, .14) : Qt.rgba(1, 1, 1, .08)
-                        border.width: 1
-                        border.color: Qt.rgba(1, 1, 1, .14)
-                    }
-                }
-
-                Button {
-                    id: closePreviewFromBarBtn
-                    implicitHeight: 42
-                    leftPadding: 22
-                    rightPadding: 22
-                    onClicked: greeterPreview.stopPreview()
-                    contentItem: Label {
-                        text: "Close preview"
-                        font.family: root.bodyFont
-                        font.weight: Font.Bold
-                        font.pixelSize: 14
-                        color: "#12131A"
-                    }
-                    background: Rectangle {
-                        radius: 11
-                        color: "#ECEAF3"
-                    }
-                }
-            }
+        onStatusChanged: {
+            if (status === Loader.Error)
+                console.warn("Preview overlay unavailable (org.kde.layershell not found) — Test Greeter still works, just without the floating chip/exit bar.")
         }
     }
 }
