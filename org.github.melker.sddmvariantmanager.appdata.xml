@@ -37,6 +37,11 @@
   <developer_name>Melker Halberd Pereira Alves</developer_name>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.4.0" date="2026-09-15">
+      <description>
+        <p>"Palco" redesign: the selected theme's preview now fills the whole window, with the library, variant filmstrip, compatibility warnings, and controls floating as frosted-glass panels above it. Adds a system diagnostics panel and a floating status/exit bar over the real greeter during Test Greeter.</p>
+      </description>
+    </release>
     <release version="2.3.0" date="2026-08-29">
       <description>
         <p>Experimental GitHub theme install: clone a public repo, read install.sh without running it, and copy themes into this distro’s SDDM directories.</p>
