@@ -672,6 +672,51 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    // Dark-glass context menu row: icon + label, hover highlight, optional
+    // destructive (red) styling — matches the sheet/modal look used by the
+    // install/remove dialogs instead of the unstyled default Menu chrome.
+    component OverflowMenuItem: MenuItem {
+        id: menuItemRoot
+        property string menuIcon: ""
+        property bool danger: false
+        implicitHeight: 38
+        implicitWidth: 190
+        leftPadding: 12
+        rightPadding: 12
+
+        readonly property color itemColor: !menuItemRoot.enabled ? appColors.sheetTextTertiary
+            : (menuItemRoot.danger ? appColors.dangerAccent : appColors.sheetTextPrimary)
+
+        contentItem: RowLayout {
+            spacing: 10
+            Kirigami.Icon {
+                Layout.preferredWidth: 14
+                Layout.preferredHeight: 14
+                source: menuItemRoot.menuIcon
+                color: menuItemRoot.itemColor
+            }
+            Label {
+                Layout.fillWidth: true
+                text: menuItemRoot.text
+                font.family: root.bodyFont
+                font.weight: menuItemRoot.danger ? Font.Bold : Font.Normal
+                font.pixelSize: 13
+                color: menuItemRoot.itemColor
+            }
+        }
+
+        background: Rectangle {
+            radius: 8
+            color: {
+                if (!menuItemRoot.enabled)
+                    return "transparent"
+                if (!menuItemRoot.highlighted)
+                    return "transparent"
+                return menuItemRoot.danger ? appColors.dangerBg : Qt.rgba(1, 1, 1, 0.08)
+            }
+        }
+    }
+
     // ── Full-bleed drop target for local install ─────────────────────
     DropArea {
         anchors.fill: parent
@@ -1755,29 +1800,42 @@ Kirigami.ApplicationWindow {
                         Menu {
                             id: overflowMenu
                             y: -implicitHeight - 8
+                            padding: 6
 
-                            MenuItem {
+                            background: Rectangle {
+                                implicitWidth: 190
+                                radius: 12
+                                color: appColors.sheetBg
+                                border.width: 1
+                                border.color: appColors.sheetBorder
+                            }
+
+                            OverflowMenuItem {
                                 text: "Open folder"
+                                menuIcon: "folder-open"
                                 enabled: selectedThemeIndex >= 0 && currentTheme.path
                                 onTriggered: root.openThemeInFileManager()
                             }
-                            MenuItem {
+                            OverflowMenuItem {
                                 text: "Copy path"
+                                menuIcon: "edit-copy"
                                 enabled: selectedThemeIndex >= 0 && currentTheme.path
                                 onTriggered: root.copyThemePath()
                             }
-                            MenuSeparator {}
-                            MenuItem {
+                            MenuSeparator {
+                                topPadding: 5
+                                bottomPadding: 5
+                                contentItem: Rectangle {
+                                    implicitHeight: 1
+                                    color: appColors.sheetHairline
+                                }
+                            }
+                            OverflowMenuItem {
                                 text: "Remove theme"
+                                menuIcon: "edit-delete"
+                                danger: true
                                 enabled: root.canRemoveCurrentTheme && !themeInstaller.installing
                                 onTriggered: root.requestRemoveCurrentTheme()
-                                contentItem: Label {
-                                    text: "Remove theme"
-                                    font.family: root.bodyFont
-                                    color: overflowMenu.contentItem ? appColors.dangerAccent : appColors.dangerAccent
-                                    leftPadding: 8
-                                    verticalAlignment: Text.AlignVCenter
-                                }
                             }
                         }
                     }
