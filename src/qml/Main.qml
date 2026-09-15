@@ -1517,16 +1517,22 @@ Kirigami.ApplicationWindow {
                 tint: appColors.panelGlass
                 borderColor: appColors.panelBorder
 
-                RowLayout {
+                Item {
                     anchors.fill: parent
                     anchors.leftMargin: 17
                     anchors.rightMargin: 17
-                    spacing: 12
 
+                    // Plain anchors instead of RowLayout: a fixed-size item next
+                    // to a wrapping Label inside a Layout can end up with the
+                    // fixed item's geometry mis-negotiated against the wrapped
+                    // item's (huge, unwrapped) implicit width — anchors make
+                    // both items' geometry unambiguous.
                     Rectangle {
-                        Layout.preferredWidth: 17
-                        Layout.preferredHeight: 17
-                        Layout.alignment: Qt.AlignTop
+                        id: simpleThemeInfoIcon
+                        width: 17
+                        height: 17
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
                         radius: 8.5
                         color: "transparent"
                         border.width: 1.5
@@ -1541,7 +1547,10 @@ Kirigami.ApplicationWindow {
                     }
 
                     Label {
-                        Layout.fillWidth: true
+                        anchors.left: simpleThemeInfoIcon.right
+                        anchors.leftMargin: 12
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
                         wrapMode: Text.WordWrap
                         text: "Simple theme — no Themes/*.conf variant pack, so there is nothing to switch between. The stage above already shows exactly what SDDM will render."
                         font.family: root.bodyFont
