@@ -29,6 +29,7 @@ qt_add_resources(sddm-variant-manager "app_qml"
     FILES
         src/qml/Main.qml
         src/qml/AppColorScheme.qml
+        src/qml/GlassPanel.qml
         src/qml/ThemeListItem.qml
         src/qml/qmldir
 )

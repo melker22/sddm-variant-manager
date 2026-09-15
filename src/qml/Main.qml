@@ -5,6 +5,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
+import QtQuick.Window
 import QtMultimedia
 import org.kde.kirigami as Kirigami
 import "."
@@ -17,7 +18,6 @@ Kirigami.ApplicationWindow {
     height: 900
     minimumWidth: 1100
     minimumHeight: 700
-    // Design background wins over whatever the desktop theme paints behind pages.
     color: appColors.background
 
     AppColorScheme {
@@ -38,28 +38,29 @@ Kirigami.ApplicationWindow {
 
     Kirigami.Theme.inherit: false
     Kirigami.Theme.backgroundColor: appColors.background
-    Kirigami.Theme.alternateBackgroundColor: appColors.surfaceVariant
+    Kirigami.Theme.alternateBackgroundColor: appColors.rowSelected
     Kirigami.Theme.highlightColor: appColors.primary
     Kirigami.Theme.highlightedTextColor: appColors.primaryFg
-    Kirigami.Theme.activeTextColor: appColors.primaryContainerFg
+    Kirigami.Theme.activeTextColor: appColors.primaryContainerText
     Kirigami.Theme.activeBackgroundColor: appColors.primaryContainer
-    Kirigami.Theme.hoverColor: appColors.surfaceVariant
+    Kirigami.Theme.hoverColor: appColors.rowHover
     Kirigami.Theme.focusColor: appColors.primary
     Kirigami.Theme.linkColor: appColors.primary
-    Kirigami.Theme.textColor: appColors.surfaceFg
-    Kirigami.Theme.disabledTextColor: appColors.textMuted
+    Kirigami.Theme.textColor: appColors.textPrimary
+    Kirigami.Theme.disabledTextColor: appColors.textTertiary
 
+    // ── Selection / search / install-sheet state (unchanged from the app's model) ──
     property int selectedThemeIndex: -1
     property int selectedVariantIndex: -1
     property int variantsRevision: 0
     property bool activateInSddm: true
     property string statusMessage: ""
     property string themeSearchText: ""
-    property string variantSearchText: ""
     property string localInstallPath: ""
     property string githubInstallUrl: ""
     property int installTabIndex: 0
-    readonly property string closePreviewHelp: "To close the full-screen preview: press Alt+Tab, select SDDM Variant Manager, then click Close preview."
+    property bool diagnosticsOpen: false
+    readonly property string closePreviewHelp: "The real greeter is covering this window. Use the floating bar to close the preview, or switch back with Alt+Tab / Super+Q."
     readonly property string appVersion: "2.3.0"
     readonly property bool canRemoveCurrentTheme: selectedThemeIndex >= 0
         && currentTheme.path
@@ -88,16 +89,6 @@ Kirigami.ApplicationWindow {
         }
         return indices
     }
-    readonly property var filteredVariants: {
-        if (variantSearchText.trim().length === 0) {
-            return currentVariants
-        }
-        const needle = variantSearchText.trim().toLowerCase()
-        return currentVariants.filter(function(variant) {
-            return variant.displayName.toLowerCase().includes(needle)
-                || variant.id.toLowerCase().includes(needle)
-        })
-    }
     readonly property var currentVariant: selectedVariantIndex >= 0 && selectedVariantIndex < currentVariants.length
         ? currentVariants[selectedVariantIndex] : ({})
 
@@ -118,36 +109,10 @@ Kirigami.ApplicationWindow {
         }
         return n
     }
-    readonly property bool currentThemeIsSddmCurrent: {
-        variantsRevision
-        if (selectedThemeIndex < 0 || !currentTheme.id)
-            return false
-        const activeId = themeScanner.currentSddmThemeId || ""
-        if (activeId.length === 0)
-            return false
-        const path = currentTheme.path || ""
-        return currentTheme.id === activeId
-            || path.endsWith("/" + activeId)
-    }
-    readonly property bool selectionIsActive: {
-        if (!currentThemeIsSddmCurrent)
-            return false
-        if (currentThemeHasVariants)
-            return currentVariant.isActive === true
-        return true
-    }
-    readonly property string activeStatusLabel: {
-        if (selectedThemeIndex < 0)
-            return "No theme selected"
-        const themeName = currentTheme.name || currentTheme.id || "Theme"
-        if (selectionIsActive) {
-            if (currentThemeHasVariants && currentVariant.displayName)
-                return "SDDM Active: " + themeName + " · Variant: " + currentVariant.displayName
-            return "SDDM Active: " + themeName
-        }
-        if (currentThemeHasVariants && currentVariant.displayName)
-            return "Selected: " + themeName + " · " + currentVariant.displayName
-        return "Selected: " + themeName
+    readonly property string qtStackShort: {
+        if (!currentTheme.qtStack)
+            return "—"
+        return currentTheme.qtStack + (currentTheme.requiresQt5 ? " (legacy)" : "")
     }
     readonly property string previewKindLabel: {
         if (previewIsVideo)
@@ -166,38 +131,118 @@ Kirigami.ApplicationWindow {
         const dot = name.lastIndexOf(".")
         const ext = dot >= 0 ? name.slice(dot + 1).toUpperCase() : ""
         if (previewIsVideo)
-            return (ext.length > 0 ? ext : "VIDEO") + " · loop"
+            return (ext.length > 0 ? ext : "Video") + " · loop"
         if (previewIsGif)
-            return "GIF"
+            return "Animated GIF"
         return ext.length > 0 ? ("Static image · " + ext) : "Static image"
-    }
-    readonly property string qtStackShort: {
-        if (!currentTheme.qtStack)
-            return "—"
-        return currentTheme.qtStack + (currentTheme.requiresQt5 ? " (legacy)" : "")
-    }
-    readonly property string multimediaStatusText: {
-        if (selectedThemeIndex < 0)
-            return ""
-        if (currentTheme.requiresMultimedia === true)
-            return "Needs multimedia"
-        return "No multimedia required"
-    }
-    readonly property string greeterFooterText: {
-        let parts = []
-        if (greeterCapabilities.greeterQtLabel)
-            parts.push("Greeter: " + greeterCapabilities.greeterQtLabel)
-        if (greeterCapabilities.analyzed)
-            parts.push(greeterCapabilities.hasQtMultimedia
-                       ? "QtMultimedia available"
-                       : "QtMultimedia missing")
-        return parts.join(" · ")
     }
     readonly property string currentConfigHint: {
         if (currentThemeHasVariants && currentVariant.configFile)
             return currentVariant.configFile
         return ""
     }
+
+    // Theme that SDDM will actually use at the next real login — independent
+    // of whatever the user is currently browsing in the library.
+    function themeIsSddmCurrent(theme) {
+        const activeId = themeScanner.currentSddmThemeId || ""
+        if (activeId.length === 0 || !theme)
+            return false
+        const path = theme.path || ""
+        return theme.id === activeId || path.endsWith("/" + activeId)
+    }
+    readonly property var liveTheme: {
+        variantsRevision
+        for (let i = 0; i < themeScanner.themeCount; ++i) {
+            const t = themeScanner.themeAt(i)
+            if (themeIsSddmCurrent(t))
+                return t
+        }
+        return null
+    }
+    readonly property string liveAtLoginLabel: {
+        if (!liveTheme)
+            return ""
+        let label = liveTheme.name || liveTheme.id || "Theme"
+        if (liveTheme.hasVariants) {
+            const idx = themeScanner.themeIndexForId(liveTheme.id)
+            const variants = idx >= 0 ? themeScanner.variantsForTheme(idx) : []
+            for (const v of variants) {
+                if (v.isActive) {
+                    label += " · " + v.displayName
+                    break
+                }
+            }
+        }
+        return label
+    }
+
+    readonly property int stageBottomReserve: {
+        if (selectedThemeIndex < 0)
+            return appColors.marginOuter
+        if (currentThemeHasVariants && currentVariants.length > 0)
+            return 214
+        return 92
+    }
+
+    // Compatibility warnings for the currently selected theme, most severe first.
+    readonly property var compatWarnings: {
+        if (selectedThemeIndex < 0)
+            return []
+        let list = []
+        const qtWarn = greeterCapabilities.qtCompatibilityWarning(currentTheme)
+        if (qtWarn && qtWarn.length > 0) {
+            list.push({
+                severity: "danger",
+                title: "Incompatible with your greeter",
+                body: qtWarn
+            })
+        }
+        const missing = greeterCapabilities.missingRequirementsForTheme(currentTheme) || []
+        if (missing.length > 0) {
+            const advisory = greeterCapabilities.advisoryForTheme(currentTheme)
+            list.push({
+                severity: "warning",
+                title: "Missing on the greeter: " + missing.join(", "),
+                body: advisory && advisory.length > 0 ? advisory : "This will fall back to a static frame at login."
+            })
+        }
+        return list
+    }
+
+    // Directories that at least one installed theme lives under, tagged from
+    // data already exposed per-theme (no direct Platform::allThemeScanDirs()
+    // binding exists in QML, so empty-but-scanned directories are not listed).
+    readonly property var scannedDirectoriesInfo: {
+        variantsRevision
+        let order = []
+        let scopes = {}
+        for (let i = 0; i < themeScanner.themeCount; ++i) {
+            const t = themeScanner.themeAt(i)
+            const path = t.path || ""
+            const slash = path.lastIndexOf("/")
+            if (slash <= 0)
+                continue
+            const dir = path.substring(0, slash)
+            if (scopes[dir] === undefined) {
+                let scope = "USER"
+                if (t.readOnly)
+                    scope = "READ-ONLY"
+                else if ((t.installScope || "").toLowerCase() === "system")
+                    scope = "SYSTEM"
+                scopes[dir] = scope
+                order.push(dir)
+            }
+        }
+        return order.map(function(dir) { return { path: dir, scope: scopes[dir] } })
+    }
+
+    readonly property var diagnosticsModules: [
+        { name: "QtMultimedia", present: greeterCapabilities.hasQtMultimedia, important: true },
+        { name: "QtSvg", present: greeterCapabilities.hasQtSvg, important: true },
+        { name: "Qt5Compat", present: greeterCapabilities.hasQt5Compat, important: true },
+        { name: "VirtualKeyboard", present: greeterCapabilities.hasVirtualKeyboard, important: false }
+    ]
 
     function previewPathForSelection() {
         variantsRevision
@@ -226,9 +271,12 @@ Kirigami.ApplicationWindow {
     }
 
     function themeSubtitleText(theme) {
-        if (theme.hasVariants)
-            return theme.variants.length + " variant" + (theme.variants.length === 1 ? "" : "s")
-        return "Simple theme"
+        let base = theme.hasVariants
+            ? (theme.variants.length + " variant" + (theme.variants.length === 1 ? "" : "s"))
+            : "Simple theme"
+        if (themeIsSddmCurrent(theme))
+            base += " · active"
+        return base
     }
 
     function selectDefaultVariantForTheme() {
@@ -268,6 +316,24 @@ Kirigami.ApplicationWindow {
         }
         previewPlayer.source = previewMediaUrl
         previewPlayer.play()
+    }
+
+    function selectAdjacentTheme(delta) {
+        const indices = filteredThemeIndices
+        if (indices.length === 0)
+            return
+        const pos = indices.indexOf(selectedThemeIndex)
+        let nextPos = pos < 0 ? 0 : pos + delta
+        nextPos = Math.max(0, Math.min(indices.length - 1, nextPos))
+        selectedThemeIndex = indices[nextPos]
+    }
+
+    function selectAdjacentVariant(delta) {
+        if (!currentThemeHasVariants || currentVariants.length === 0)
+            return
+        let next = selectedVariantIndex + delta
+        next = Math.max(0, Math.min(currentVariants.length - 1, next))
+        selectedVariantIndex = next
     }
 
     function startFullPreview() {
@@ -341,13 +407,13 @@ Kirigami.ApplicationWindow {
         Qt.openUrlExternally("file://" + currentTheme.path)
     }
 
-    function copyPreviewCommand() {
-        const cmd = "sddm-greeter --test-mode --theme " + (currentTheme.path || "<theme>")
-        // Clipboard via temporary TextEdit
-        clipboardHelper.text = cmd
+    function copyThemePath() {
+        if (!currentTheme.path)
+            return
+        clipboardHelper.text = currentTheme.path
         clipboardHelper.selectAll()
         clipboardHelper.copy()
-        notify("Copied to clipboard!")
+        notify("Path copied to clipboard.")
     }
 
     function applyCurrentSelection() {
@@ -445,7 +511,7 @@ Kirigami.ApplicationWindow {
                     index = themeScanner.themeIndexForId(ids[0])
                 }
                 if (index < 0) {
-                    root.notify("Installed \"" + ids[0] + "\" but it is not in the library yet. Click Refresh. "
+                    root.notify("Installed \"" + ids[0] + "\" but it is not in the library yet. Click Rescan. "
                                 + "Expected under ~/.local/share/sddm/themes/ or the system theme dir.")
                     return
                 }
@@ -469,148 +535,12 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    Dialog {
-        id: removeConfirmDialog
-        title: "Remove theme?"
-        modal: true
-        anchors.centerIn: parent
-        standardButtons: Dialog.NoButton
-        width: Math.min(root.width * 0.42, 440)
-        padding: 20
-
-        background: Rectangle {
-            radius: appColors.radiusModal
-            color: appColors.surface
-            border.width: 1
-            border.color: appColors.cardBorder
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 14
-
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                text: "Delete \"" + (currentTheme.name || currentTheme.id || "this theme")
-                      + "\" from disk?\n\n"
-                      + (currentTheme.path || "")
-                      + "\n\nThis cannot be undone."
-                font.family: root.bodyFont
-                font.pixelSize: 13
-                color: appColors.surfaceFg
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-                Item { Layout.fillWidth: true }
-
-                Button {
-                    id: removeCancelBtn
-                    padding: 10
-                    leftPadding: 16
-                    rightPadding: 16
-                    onClicked: removeConfirmDialog.close()
-                    contentItem: Label {
-                        text: "Cancel"
-                        font.family: root.bodyFont
-                        font.pixelSize: 13
-                        color: appColors.surfaceVariantFg
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-                    background: AppSecondaryChrome { control: removeCancelBtn }
-                }
-
-                Button {
-                    id: removeConfirmBtn
-                    padding: 10
-                    leftPadding: 16
-                    rightPadding: 16
-                    onClicked: {
-                        removeConfirmDialog.close()
-                        root.confirmRemoveCurrentTheme()
-                    }
-                    contentItem: Label {
-                        text: "Remove theme"
-                        font.family: root.bodyFont
-                        font.weight: Font.DemiBold
-                        font.pixelSize: 13
-                        color: "#FFFFFF"
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-                    background: Rectangle {
-                        radius: appColors.radiusCard
-                        color: removeConfirmBtn.hovered ? "#9B1C1C" : appColors.danger
-                    }
-                }
-            }
-        }
-    }
-
-
     onSelectedThemeIndexChanged: {
         selectDefaultVariantForTheme()
         Qt.callLater(updatePreviewMedia)
     }
     onSelectedVariantIndexChanged: Qt.callLater(updatePreviewMedia)
     onPreviewMediaPathChanged: Qt.callLater(updatePreviewMedia)
-
-    component VariantThumbnail: Image {
-        property url mediaSource
-        fillMode: Image.PreserveAspectCrop
-        source: mediaSource
-        asynchronous: true
-        smooth: true
-        mipmap: true
-    }
-
-    component AppFieldBackground: Rectangle {
-        property Item control
-        radius: appColors.radiusCard
-        color: appColors.fieldBg
-        border.width: 1
-        border.color: control && control.activeFocus ? appColors.fieldBorderFocus : appColors.fieldBorder
-        Behavior on border.color { ColorAnimation { duration: 120 } }
-    }
-
-    component AppSecondaryChrome: Rectangle {
-        property Item control
-        property bool danger: false
-        radius: appColors.radiusCard
-        // Design: white surface + subtle border; hover mauve wash (not Breeze/Fusion).
-        color: {
-            if (!control)
-                return appColors.fieldBg
-            if (control.down)
-                return Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.12)
-            if (control.hovered)
-                return Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.08)
-            return appColors.fieldBg
-        }
-        border.width: 1
-        border.color: control && control.hovered ? appColors.primary : appColors.cardBorder
-        Behavior on color { ColorAnimation { duration: 120 } }
-        Behavior on border.color { ColorAnimation { duration: 120 } }
-    }
-
-    component AppCheckIndicator: Rectangle {
-        property Item control
-        implicitWidth: 18
-        implicitHeight: 18
-        radius: 4
-        color: control && control.checked ? appColors.primary : appColors.fieldBg
-        border.width: control && control.checked ? 0 : 1
-        border.color: appColors.checkboxBorder
-
-        Rectangle {
-            anchors.centerIn: parent
-            width: 8
-            height: 8
-            radius: 2
-            color: appColors.primaryFg
-            visible: control && control.checked
-        }
-    }
 
     onClosing: function(close) {
         if (greeterPreview.running) {
@@ -622,6 +552,91 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    // ── Reusable inline visual components ───────────────────────────
+    component VariantThumbnail: Image {
+        property url mediaSource
+        fillMode: Image.PreserveAspectCrop
+        source: mediaSource
+        asynchronous: true
+        smooth: true
+        mipmap: true
+    }
+
+    component GlassIconButton: Rectangle {
+        id: iconChrome
+        property Item control
+        implicitWidth: 32
+        implicitHeight: 32
+        radius: 9
+        color: {
+            if (!control)
+                return "transparent"
+            if (control.down)
+                return Qt.rgba(1, 1, 1, appColors.isDark ? 0.14 : 0.10)
+            if (control.hovered)
+                return Qt.rgba(1, 1, 1, appColors.isDark ? 0.08 : 0.5)
+            return "transparent"
+        }
+        Behavior on color { ColorAnimation { duration: 120 } }
+    }
+
+    component GlassSecondaryChrome: Rectangle {
+        id: secondaryChrome
+        property Item control
+        radius: appColors.radiusButton
+        color: {
+            if (!control)
+                return appColors.isDark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0.12, 0.10, 0.27, 0.05)
+            if (control.down)
+                return appColors.isDark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0.12, 0.10, 0.27, 0.09)
+            if (control.hovered)
+                return appColors.isDark ? Qt.rgba(1, 1, 1, 0.11) : Qt.rgba(0.12, 0.10, 0.27, 0.07)
+            return appColors.isDark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0.12, 0.10, 0.27, 0.05)
+        }
+        border.width: 1
+        border.color: appColors.isDark ? Qt.rgba(1, 1, 1, 0.14) : "#E4E2EE"
+        Behavior on color { ColorAnimation { duration: 120 } }
+    }
+
+    component PrimaryChrome: Rectangle {
+        id: primaryChrome
+        property Item control
+        radius: appColors.radiusButton
+        color: {
+            if (!control || !control.enabled)
+                return appColors.disabledPrimary
+            if (control.down)
+                return appColors.primaryPressed
+            if (control.hovered)
+                return appColors.primaryHover
+            return appColors.primary
+        }
+        Behavior on color { ColorAnimation { duration: 120 } }
+    }
+
+    component AppCheckIndicator: Rectangle {
+        property Item control
+        property bool onGlass: true
+        implicitWidth: 16
+        implicitHeight: 16
+        radius: 4
+        color: control && control.checked ? appColors.primary : "transparent"
+        border.width: control && control.checked ? 0 : 1.6
+        border.color: onGlass
+            ? (appColors.isDark ? Qt.rgba(1, 1, 1, 0.35) : "#B9B4CC")
+            : Qt.rgba(1, 1, 1, .35)
+
+        Kirigami.Icon {
+            anchors.centerIn: parent
+            width: 10
+            height: 10
+            source: "checkmark"
+            color: "#FFFFFF"
+            visible: control && control.checked
+        }
+    }
+
+    // ── Full-bleed drop target for local install ─────────────────────
     DropArea {
         anchors.fill: parent
         keys: ["text/uri-list"]
@@ -633,18 +648,37 @@ Kirigami.ApplicationWindow {
 
         Rectangle {
             anchors.fill: parent
+            anchors.margins: appColors.marginOuter
+            radius: appColors.radiusPanel
             visible: parent.containsDrag
-            color: Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.12)
+            color: Qt.rgba(0.5451, 0.4039, 0.949, .10)
             border.width: 2
-            border.color: appColors.primary
             z: 1000
+
+            // QML doesn't support dashed borders natively; approximate one.
+            Canvas {
+                anchors.fill: parent
+                onPaint: {
+                    const ctx = getContext("2d")
+                    ctx.reset()
+                    ctx.strokeStyle = "#8B67F2"
+                    ctx.lineWidth = 2
+                    ctx.setLineDash([10, 8])
+                    const r = appColors.radiusPanel
+                    ctx.beginPath()
+                    ctx.roundedRect ? ctx.roundedRect(1, 1, width - 2, height - 2, r)
+                                    : ctx.rect(1, 1, width - 2, height - 2)
+                    ctx.stroke()
+                }
+            }
 
             Label {
                 anchors.centerIn: parent
-                text: "Drop theme folder or archive to install"
+                text: "Drop to install"
                 font.family: root.headingFont
-                font.bold: true
-                color: appColors.primary
+                font.weight: Font.Bold
+                font.pixelSize: 24
+                color: appColors.primaryTextOnGlass
             }
         }
     }
@@ -672,6 +706,26 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    // ── Keyboard shortcuts ────────────────────────────────────────────
+    Shortcut { sequence: "Up"; onActivated: root.selectAdjacentTheme(-1) }
+    Shortcut { sequence: "Down"; onActivated: root.selectAdjacentTheme(1) }
+    Shortcut { sequence: "Left"; onActivated: root.selectAdjacentVariant(-1) }
+    Shortcut { sequence: "Right"; onActivated: root.selectAdjacentVariant(1) }
+    Shortcut { sequence: "Return"; onActivated: root.applyCurrentSelection() }
+    Shortcut {
+        sequence: "Escape"
+        onActivated: {
+            if (installThemeSheet.visible)
+                installThemeSheet.close()
+            else if (diagnosticsOpen)
+                diagnosticsOpen = false
+            else if (greeterPreview.running)
+                greeterPreview.stopPreview()
+        }
+    }
+    Shortcut { sequence: "Ctrl+F"; onActivated: themeSearchInput.forceActiveFocus() }
+    Shortcut { sequence: "F5"; onActivated: themeScanner.rescan() }
+
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.None
 
     pageStack.initialPage: Kirigami.Page {
@@ -679,67 +733,333 @@ Kirigami.ApplicationWindow {
         title: ""
         background: Rectangle { color: appColors.background }
 
-        ColumnLayout {
+        Item {
+            id: stage
             anchors.fill: parent
-            spacing: 0
 
-            // ── Header 60px ──────────────────────────────────────────
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 60
-                color: appColors.surface
-                z: 50
+            // ══ Layer 1 — preview stage (full-bleed) ══════════════════
+            Item {
+                id: stageBackdrop
+                anchors.fill: parent
+                clip: true
 
                 Rectangle {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    height: 1
-                    color: appColors.cardBorder
+                    anchors.fill: parent
+                    color: appColors.background
                 }
+
+                Canvas {
+                    id: emptyStripes
+                    anchors.fill: parent
+                    visible: themeScanner.themeCount === 0
+                    onPaint: {
+                        const ctx = getContext("2d")
+                        ctx.reset()
+                        ctx.fillStyle = "#14151D"
+                        ctx.fillRect(0, 0, width, height)
+                        ctx.strokeStyle = "#171923"
+                        ctx.lineWidth = 14
+                        ctx.save()
+                        const diag = Math.sqrt(width * width + height * height)
+                        ctx.translate(width / 2, height / 2)
+                        ctx.rotate(135 * Math.PI / 180)
+                        for (let x = -diag; x < diag; x += 28) {
+                            ctx.beginPath()
+                            ctx.moveTo(x, -diag)
+                            ctx.lineTo(x, diag)
+                            ctx.stroke()
+                        }
+                        ctx.restore()
+                    }
+                    onWidthChanged: requestPaint()
+                    onHeightChanged: requestPaint()
+                    onVisibleChanged: if (visible) requestPaint()
+                }
+
+                AudioOutput {
+                    id: previewAudio
+                    volume: 0
+                    muted: true
+                }
+
+                MediaPlayer {
+                    id: previewPlayer
+                    audioOutput: previewAudio
+                    videoOutput: previewVideoOutput
+                    loops: MediaPlayer.Infinite
+                    onMediaStatusChanged: function(status) {
+                        if (!root.previewIsVideo)
+                            return
+                        if (status === MediaPlayer.LoadedMedia || status === MediaPlayer.BufferedMedia)
+                            play()
+                    }
+                }
+
+                VideoOutput {
+                    id: previewVideoOutput
+                    anchors.fill: parent
+                    visible: root.previewIsVideo
+                    fillMode: VideoOutput.PreserveAspectCrop
+                }
+
+                AnimatedImage {
+                    anchors.fill: parent
+                    visible: root.previewIsGif
+                    source: root.previewIsGif ? root.previewMediaUrl : ""
+                    fillMode: Image.PreserveAspectCrop
+                    playing: root.previewIsGif
+                    asynchronous: true
+                    smooth: true
+                }
+
+                Image {
+                    anchors.fill: parent
+                    visible: root.previewIsImage
+                    source: root.previewIsImage ? root.previewMediaUrl : ""
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    smooth: true
+                    mipmap: true
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    visible: previewMediaPath.length > 0
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: appColors.isDark ? Qt.rgba(0.0314, 0.0353, 0.0549, .55) : Qt.rgba(1, 1, 1, .34) }
+                        GradientStop { position: appColors.isDark ? 0.32 : 0.30; color: appColors.isDark ? Qt.rgba(0.0314, 0.0353, 0.0549, .10) : Qt.rgba(1, 1, 1, 0) }
+                        GradientStop { position: 1.0; color: appColors.isDark ? Qt.rgba(0.0314, 0.0353, 0.0549, .72) : Qt.rgba(1, 1, 1, .42) }
+                    }
+                }
+            }
+
+            // ══ Layer 2 — welcome / select-theme placeholder ══════════
+            ColumnLayout {
+                anchors.centerIn: parent
+                spacing: 10
+                visible: themeScanner.themeCount > 0 && selectedThemeIndex < 0
+
+                Label {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Select a theme"
+                    font.family: root.headingFont
+                    font.weight: Font.Bold
+                    font.pixelSize: 22
+                    color: appColors.textPrimary
+                }
+                Label {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Pick a theme from the library on the left."
+                    font.family: root.bodyFont
+                    font.pixelSize: 14
+                    color: appColors.textSecondary
+                }
+            }
+
+            // ══ Layer 3 — empty-library drop zone ═════════════════════
+            Rectangle {
+                id: emptyDropZone
+                visible: themeScanner.themeCount === 0
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.topMargin: 100
+                anchors.leftMargin: appColors.stageInset
+                anchors.rightMargin: appColors.marginOuter
+                anchors.bottomMargin: appColors.marginOuter
+                radius: appColors.radiusPanel
+                color: Qt.rgba(0.5451, 0.4039, 0.949, .07)
+                border.width: 0
+
+                Canvas {
+                    anchors.fill: parent
+                    onPaint: {
+                        const ctx = getContext("2d")
+                        ctx.reset()
+                        ctx.strokeStyle = Qt.rgba(0.5451, 0.4039, 0.949, .65)
+                        ctx.lineWidth = 2
+                        ctx.setLineDash([10, 8])
+                        ctx.beginPath()
+                        ctx.roundedRect ? ctx.roundedRect(1, 1, width - 2, height - 2, appColors.radiusPanel)
+                                        : ctx.rect(1, 1, width - 2, height - 2)
+                        ctx.stroke()
+                    }
+                }
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: 16
+                    width: Math.min(440, parent.width - 64)
+
+                    Rectangle {
+                        Layout.alignment: Qt.AlignHCenter
+                        width: 62
+                        height: 62
+                        radius: 18
+                        color: Qt.rgba(0.5451, 0.4039, 0.949, .18)
+                        border.width: 1
+                        border.color: Qt.rgba(0.5451, 0.4039, 0.949, .4)
+
+                        Kirigami.Icon {
+                            anchors.centerIn: parent
+                            width: 22
+                            height: 22
+                            source: "list-add"
+                            color: "#B49BFA"
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: "Drop a theme here"
+                        font.family: root.headingFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 24
+                        color: "#F2F1F7"
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        text: "A folder with metadata.desktop, or a zip / tar.gz / tar.xz / tar.zst archive. You can also install from a public GitHub repository."
+                        font.family: root.bodyFont
+                        font.pixelSize: 14
+                        color: Qt.rgba(1, 1, 1, .52)
+                    }
+
+                    RowLayout {
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 12
+
+                        Button {
+                            id: emptyChooseFileBtn
+                            implicitHeight: 42
+                            leftPadding: 20
+                            rightPadding: 20
+                            onClicked: archiveFileDialog.open()
+                            contentItem: Label {
+                                text: "Choose file…"
+                                font.family: root.bodyFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 14
+                                color: "#FFFFFF"
+                            }
+                            background: PrimaryChrome { control: emptyChooseFileBtn }
+                        }
+
+                        Button {
+                            id: emptyGithubBtn
+                            implicitHeight: 42
+                            leftPadding: 20
+                            rightPadding: 20
+                            onClicked: {
+                                root.installTabIndex = 1
+                                root.openInstallThemeSheet()
+                            }
+                            contentItem: Label {
+                                text: "Install from GitHub"
+                                font.family: root.bodyFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 14
+                                color: appColors.isDark ? "#FFFFFF" : appColors.textPrimary
+                            }
+                            background: GlassSecondaryChrome { control: emptyGithubBtn }
+                        }
+                    }
+                }
+            }
+
+            // ══ Layer 4 — header ═══════════════════════════════════════
+            GlassPanel {
+                id: headerPanel
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: appColors.marginOuter
+                height: 58
+                backdropSource: stageBackdrop
+                cornerRadius: appColors.radiusPanel
+                blurAmount: appColors.blurRadius
+                tint: appColors.panelGlass
+                borderColor: appColors.panelBorder
+                shadowColor: appColors.isDark ? "transparent" : appColors.panelShadow
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 20
-                    anchors.rightMargin: 20
-                    spacing: 12
+                    anchors.leftMargin: 18
+                    anchors.rightMargin: 18
+                    spacing: 14
 
-                    RowLayout {
-                        spacing: 12
+                    Rectangle {
+                        Layout.preferredWidth: 26
+                        Layout.preferredHeight: 26
+                        radius: 8
+                        color: "transparent"
+                        clip: true
 
                         Image {
-                            Layout.preferredWidth: 32
-                            Layout.preferredHeight: 32
+                            anchors.fill: parent
                             source: "qrc:/icons/app-logo.png"
-                            fillMode: Image.PreserveAspectFit
+                            fillMode: Image.PreserveAspectCrop
                             smooth: true
                             mipmap: true
                             asynchronous: true
                         }
+                    }
 
-                        Label {
-                            text: "SDDM Variant Manager"
-                            font.family: root.headingFont
-                            font.weight: Font.DemiBold
-                            font.pixelSize: 16
-                            color: appColors.surfaceFg
-                        }
+                    Label {
+                        text: "Variant Manager"
+                        font.family: root.headingFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 15
+                        font.letterSpacing: 0.2
+                        color: appColors.textPrimary
+                    }
 
-                        Rectangle {
-                            radius: height / 2
-                            color: appColors.background
-                            border.width: 1
-                            border.color: appColors.cardBorder
-                            implicitHeight: verLabel.implicitHeight + 4
-                            implicitWidth: verLabel.implicitWidth + 16
+                    Rectangle {
+                        Layout.preferredWidth: 1
+                        Layout.preferredHeight: 22
+                        color: appColors.divider
+                    }
 
-                            Label {
-                                id: verLabel
-                                anchors.centerIn: parent
-                                text: "v" + root.appVersion
+                    Rectangle {
+                        Layout.preferredWidth: 340
+                        Layout.maximumWidth: 340
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 34
+                        radius: 9
+                        color: appColors.fieldBg
+                        border.width: themeSearchInput.activeFocus ? 1 : 0
+                        border.color: appColors.fieldBorderFocus
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 10
+                            spacing: 8
+
+                            Kirigami.Icon {
+                                source: "edit-find"
+                                Layout.preferredWidth: 12
+                                Layout.preferredHeight: 12
+                                color: appColors.fieldPlaceholder
+                            }
+
+                            TextField {
+                                id: themeSearchInput
+                                Layout.fillWidth: true
+                                placeholderText: "Search themes"
                                 font.family: root.bodyFont
-                                font.pixelSize: 11
-                                color: appColors.textMuted
+                                font.pixelSize: 14
+                                color: appColors.textPrimary
+                                placeholderTextColor: appColors.fieldPlaceholder
+                                selectedTextColor: appColors.textPrimary
+                                selectionColor: appColors.primaryTint
+                                background: Item {}
+                                onTextChanged: root.themeSearchText = text
                             }
                         }
                     }
@@ -747,1074 +1067,972 @@ Kirigami.ApplicationWindow {
                     Item { Layout.fillWidth: true }
 
                     Rectangle {
-                        visible: selectedThemeIndex >= 0
                         radius: height / 2
-                        color: root.selectionIsActive ? appColors.badgeSuccessBg : appColors.secondaryContainer
-                        implicitHeight: statusPill.implicitHeight + 12
+                        color: root.liveTheme ? appColors.successBg
+                             : (appColors.isDark ? Qt.rgba(1, 1, 1, .07) : Qt.rgba(0.1176, 0.098, 0.2745, .05))
+                        border.width: 1
+                        border.color: root.liveTheme ? appColors.successBorder
+                                    : (appColors.isDark ? Qt.rgba(1, 1, 1, .12) : Qt.rgba(0.1176, 0.098, 0.2745, .10))
+                        implicitHeight: statusPill.implicitHeight + 14
                         implicitWidth: statusPill.implicitWidth + 28
 
                         RowLayout {
                             id: statusPill
                             anchors.centerIn: parent
-                            spacing: 8
+                            spacing: 9
 
                             Rectangle {
-                                Layout.preferredWidth: 8
-                                Layout.preferredHeight: 8
-                                radius: 4
-                                color: root.selectionIsActive ? appColors.badgeSuccessText : appColors.surfaceVariantFg
+                                Layout.preferredWidth: 6
+                                Layout.preferredHeight: 6
+                                radius: 3
+                                color: root.liveTheme ? appColors.successDot : appColors.textTertiary
                             }
 
                             Label {
-                                text: root.activeStatusLabel
+                                text: root.liveTheme ? ("Live at login: " + root.liveAtLoginLabel) : "No active theme detected"
                                 font.family: root.bodyFont
-                                font.weight: Font.DemiBold
-                                font.pixelSize: 12
-                                color: root.selectionIsActive ? appColors.badgeSuccessText : appColors.surfaceVariantFg
+                                font.pixelSize: 13
+                                color: root.liveTheme ? appColors.successText : appColors.textSecondary
                             }
+                        }
+                    }
+
+                    Button {
+                        id: refreshBtn
+                        implicitWidth: 32
+                        implicitHeight: 32
+                        onClicked: themeScanner.rescan()
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Rescan themes (F5)"
+                        ToolTip.delay: Kirigami.Units.toolTipDelay
+                        contentItem: Kirigami.Icon {
+                            source: "view-refresh"
+                            color: appColors.textSecondary
+                        }
+                        background: GlassIconButton { control: refreshBtn }
+                    }
+
+                    Button {
+                        id: settingsBtn
+                        implicitWidth: 32
+                        implicitHeight: 32
+                        onClicked: root.diagnosticsOpen = !root.diagnosticsOpen
+                        ToolTip.visible: hovered
+                        ToolTip.text: "System diagnostics"
+                        ToolTip.delay: Kirigami.Units.toolTipDelay
+                        contentItem: Kirigami.Icon {
+                            source: "configure"
+                            color: appColors.textSecondary
+                        }
+                        background: GlassIconButton { control: settingsBtn }
+                    }
+                }
+            }
+
+            // ══ Layer 5 — library rail ═════════════════════════════════
+            GlassPanel {
+                id: railPanel
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                anchors.topMargin: 100
+                anchors.leftMargin: appColors.marginOuter
+                anchors.bottomMargin: root.stageBottomReserve
+                width: appColors.railWidth
+                visible: themeScanner.themeCount > 0
+                backdropSource: stageBackdrop
+                cornerRadius: appColors.radiusPanel
+                blurAmount: appColors.blurRadius
+                tint: appColors.panelGlass
+                borderColor: appColors.panelBorder
+                shadowColor: appColors.isDark ? "transparent" : appColors.panelShadow
+
+                Behavior on anchors.bottomMargin { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 0
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 14
+                        Layout.rightMargin: 14
+                        Layout.topMargin: 16
+                        Layout.bottomMargin: 12
+
+                        Label {
+                            text: "LIBRARY · " + themeScanner.themeCount
+                            font.family: root.headingFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 11
+                            font.letterSpacing: 1.4
+                            color: appColors.textSecondary
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Label {
+                            text: "Rescan"
+                            font.family: root.bodyFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 12
+                            color: appColors.primaryTextOnGlass
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: themeScanner.rescan()
+                            }
+                        }
+                    }
+
+                    ListView {
+                        id: themeListView
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: 2
+                        leftMargin: 6
+                        rightMargin: 6
+                        bottomMargin: 6
+                        model: filteredThemeIndices
+
+                        delegate: ThemeListItem {
+                            required property int modelData
+                            themeIndex: modelData
+                            colors: appColors
+                            headingFont: root.headingFont
+                            bodyFont: root.bodyFont
+                            themeName: {
+                                const theme = themeScanner.themeAt(modelData)
+                                return theme.name || theme.id || "Theme"
+                            }
+                            themeSubtitle: themeSubtitleText(themeScanner.themeAt(modelData))
+                            thumbnailSource: themeThumbUrl(themeScanner.themeAt(modelData))
+                            scopeLabel: themeScopeLabel(themeScanner.themeAt(modelData))
+                            readOnly: themeScanner.themeAt(modelData).readOnly === true
+                            selected: root.selectedThemeIndex === modelData
+                            onClicked: root.selectedThemeIndex = modelData
+                        }
+                    }
+
+                    Button {
+                        id: installPrimaryBtn
+                        Layout.fillWidth: true
+                        Layout.margins: 14
+                        Layout.topMargin: 8
+                        implicitHeight: 42
+                        onClicked: root.openInstallThemeSheet()
+
+                        contentItem: RowLayout {
+                            spacing: 9
+                            Item { Layout.fillWidth: true }
+                            Kirigami.Icon {
+                                source: "list-add"
+                                Layout.preferredWidth: 13
+                                Layout.preferredHeight: 13
+                                color: themeScanner.themeCount === 0 ? "#FFFFFF" : appColors.textPrimary
+                            }
+                            Label {
+                                text: "Install theme"
+                                font.family: root.bodyFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 14
+                                color: themeScanner.themeCount === 0 ? "#FFFFFF" : appColors.textPrimary
+                            }
+                            Item { Layout.fillWidth: true }
+                        }
+                        background: themeScanner.themeCount === 0
+                            ? primaryInstallChrome
+                            : secondaryInstallChrome
+
+                        Component {
+                            id: primaryInstallChrome
+                            PrimaryChrome { control: installPrimaryBtn }
+                        }
+                        Component {
+                            id: secondaryInstallChrome
+                            GlassSecondaryChrome { control: installPrimaryBtn }
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 14
+                    anchors.topMargin: 44
+                    spacing: 8
+                    visible: themeScanner.themeCount === 0
+
+                    Item { Layout.fillHeight: true }
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: "No themes found"
+                        font.family: root.bodyFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 14
+                        color: Qt.rgba(1, 1, 1, .62)
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: "Nothing in the default SDDM theme directories yet."
+                        font.family: root.bodyFont
+                        font.pixelSize: 12
+                        color: Qt.rgba(1, 1, 1, .4)
+                    }
+
+                    Item { Layout.fillHeight: true }
+                }
+            }
+
+            // ══ Layer 6 — media chip + compatibility cards ═════════════
+            ColumnLayout {
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: 100
+                anchors.rightMargin: appColors.marginOuter
+                width: 320
+                spacing: 10
+                visible: selectedThemeIndex >= 0
+
+                Rectangle {
+                    Layout.alignment: Qt.AlignRight
+                    visible: root.previewTechLabel.length > 0
+                    radius: 9
+                    color: appColors.panelGlass
+                    border.width: 1
+                    border.color: appColors.panelBorder
+                    implicitHeight: mediaChipRow.implicitHeight + 14
+                    implicitWidth: mediaChipRow.implicitWidth + 26
+
+                    RowLayout {
+                        id: mediaChipRow
+                        anchors.centerIn: parent
+                        spacing: 9
+
+                        Kirigami.Icon {
+                            source: root.previewIsVideo ? "media-playback-start"
+                                  : (root.previewIsGif ? "image-gif" : "image-x-generic")
+                            Layout.preferredWidth: 12
+                            Layout.preferredHeight: 12
+                            color: appColors.textSecondary
+                        }
+                        Label {
+                            text: root.previewTechLabel
+                            font.family: root.bodyFont
+                            font.pixelSize: 13
+                            color: appColors.textSecondary
+                        }
+                    }
+                }
+
+                Repeater {
+                    model: root.compatWarnings
+                    delegate: Rectangle {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        radius: 11
+                        color: modelData.severity === "danger" ? appColors.dangerBg : appColors.warningBg
+                        border.width: 1
+                        border.color: modelData.severity === "danger" ? appColors.dangerBorder : appColors.warningBorder
+                        implicitHeight: warnCol.implicitHeight + 24
+
+                        ColumnLayout {
+                            id: warnCol
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: 13
+                            spacing: 8
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 9
+
+                                Rectangle {
+                                    Layout.preferredWidth: 16
+                                    Layout.preferredHeight: 16
+                                    radius: 8
+                                    color: modelData.severity === "danger" ? appColors.dangerAccent : appColors.warningAccent
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: "!"
+                                        font.pixelSize: 10
+                                        font.weight: Font.Bold
+                                        color: modelData.severity === "danger" ? "#FFFFFF" : appColors.warningDiscFg
+                                    }
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    text: modelData.title
+                                    font.family: root.bodyFont
+                                    font.weight: Font.Bold
+                                    font.pixelSize: 13
+                                    color: modelData.severity === "danger" ? appColors.dangerText : appColors.warningText
+                                }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                text: modelData.body
+                                font.family: root.bodyFont
+                                font.pixelSize: 13
+                                lineHeight: 1.4
+                                color: modelData.severity === "danger" ? appColors.dangerBody : appColors.warningText
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ══ Layer 7 — variant filmstrip / simple-theme info card ═══
+            ColumnLayout {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: appColors.stageInset
+                anchors.rightMargin: appColors.marginOuter
+                anchors.bottomMargin: 96
+                spacing: 12
+                visible: selectedThemeIndex >= 0 && currentThemeHasVariants && currentVariants.length > 0
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 4
+                    spacing: 12
+
+                    Label {
+                        text: "VARIANTS"
+                        font.family: root.headingFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 11
+                        font.letterSpacing: 1.4
+                        color: appColors.textSecondary
+                    }
+                    Label {
+                        text: root.currentConfigHint
+                        visible: text.length > 0
+                        font.family: root.bodyFont
+                        font.pixelSize: 12
+                        color: appColors.textTertiary
+                        elide: Text.ElideMiddle
+                        Layout.maximumWidth: 320
+                    }
+                }
+
+                Row {
+                    spacing: 12
+
+                    Repeater {
+                        model: currentVariants
+                        delegate: Item {
+                            id: variantCardRoot
+                            required property var modelData
+                            required property int index
+                            width: 186
+                            height: 105 + 19
+
+                            readonly property bool variantSelected: root.selectedVariantIndex === index
+                            readonly property bool variantActive: modelData.isActive === true
+
+                            Rectangle {
+                                id: variantCard
+                                width: 186
+                                height: 105
+                                radius: appColors.radiusVariantCard
+                                color: appColors.fieldBg
+                                clip: true
+                                border.width: variantActive ? 2 : (variantSelected ? 1.5 : 0)
+                                border.color: variantActive ? appColors.primary
+                                            : (variantSelected ? Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.55) : "transparent")
+                                scale: variantHover.hovered ? 1.02 : 1.0
+                                Behavior on scale { NumberAnimation { duration: 120 } }
+
+                                layer.enabled: true
+                                layer.effect: null
+
+                                Rectangle {
+                                    z: -1
+                                    anchors.fill: parent
+                                    anchors.topMargin: 6
+                                    radius: parent.radius
+                                    color: appColors.isDark ? Qt.rgba(0, 0, 0, .35) : Qt.rgba(0.1176, 0.098, 0.2745, .18)
+                                }
+
+                                VariantThumbnail {
+                                    anchors.fill: parent
+                                    mediaSource: modelData.thumbnailPath ? "file://" + modelData.thumbnailPath : ""
+                                }
+
+                                HoverHandler { id: variantHover }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.selectedVariantIndex = index
+                                }
+                            }
+
+                            Label {
+                                anchors.top: variantCard.bottom
+                                anchors.topMargin: 7
+                                anchors.left: parent.left
+                                anchors.leftMargin: 2
+                                width: variantCard.width
+                                text: (modelData.displayName || modelData.id || "") + (variantCardRoot.variantActive ? " · applied" : "")
+                                font.family: root.bodyFont
+                                font.pixelSize: 12
+                                color: appColors.textSecondary
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+                }
+            }
+
+            GlassPanel {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: appColors.stageInset
+                anchors.rightMargin: appColors.marginOuter
+                anchors.bottomMargin: 96
+                height: 54
+                visible: selectedThemeIndex >= 0 && !currentThemeHasVariants
+                backdropSource: stageBackdrop
+                cornerRadius: 12
+                blurAmount: appColors.blurRadius
+                tint: appColors.panelGlass
+                borderColor: appColors.panelBorder
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 17
+                    anchors.rightMargin: 17
+                    spacing: 12
+
+                    Rectangle {
+                        Layout.preferredWidth: 17
+                        Layout.preferredHeight: 17
+                        Layout.alignment: Qt.AlignTop
+                        radius: 8.5
+                        color: "transparent"
+                        border.width: 1.5
+                        border.color: appColors.textSecondary
+
+                        Label {
+                            anchors.centerIn: parent
+                            text: "i"
+                            font.pixelSize: 10
+                            color: appColors.textSecondary
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: "Simple theme — no Themes/*.conf variant pack, so there is nothing to switch between. The stage above already shows exactly what SDDM will render."
+                        font.family: root.bodyFont
+                        font.pixelSize: 13
+                        color: appColors.textSecondary
+                    }
+                }
+            }
+
+            // ══ Layer 8 — command bar ═══════════════════════════════════
+            GlassPanel {
+                id: commandBar
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: appColors.stageInset
+                anchors.rightMargin: appColors.marginOuter
+                anchors.bottomMargin: appColors.marginOuter
+                height: 60
+                visible: selectedThemeIndex >= 0
+                backdropSource: stageBackdrop
+                cornerRadius: appColors.radiusPanel
+                blurAmount: appColors.blurRadius
+                tint: appColors.barGlass
+                borderColor: appColors.barBorder
+                shadowColor: appColors.barShadow
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 20
+                    anchors.rightMargin: 10
+                    spacing: 16
+
+                    ColumnLayout {
+                        spacing: 2
+                        Layout.maximumWidth: 260
+
+                        RowLayout {
+                            spacing: 6
+                            Label {
+                                text: currentTheme.name || currentTheme.id || "Theme"
+                                font.family: root.headingFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 16
+                                color: appColors.textPrimary
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                visible: currentThemeHasVariants && currentVariant.displayName
+                                text: "· " + (currentVariant.displayName || "")
+                                font.family: root.bodyFont
+                                font.pixelSize: 16
+                                color: appColors.textSecondary
+                            }
+                        }
+
+                        Label {
+                            text: [currentTheme.path || "", root.qtStackShort, "QML2"].filter(function(p) { return p && p.length > 0 }).join(" · ")
+                            font.family: root.bodyFont
+                            font.pixelSize: 12
+                            color: appColors.textSecondary
+                            elide: Text.ElideMiddle
+                            Layout.fillWidth: true
                         }
                     }
 
                     Item { Layout.fillWidth: true }
 
                     RowLayout {
-                        spacing: 8
+                        spacing: 9
+                        visible: currentThemeHasVariants
 
-                        Button {
-                            id: refreshBtn
-                            implicitWidth: 36
-                            implicitHeight: 36
-                            onClicked: themeScanner.rescan()
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Refresh themes"
-                            ToolTip.delay: Kirigami.Units.toolTipDelay
-
-                            contentItem: Kirigami.Icon {
-                                source: "view-refresh"
-                                color: appColors.primary
+                        CheckBox {
+                            id: activateCheck
+                            checked: root.activateInSddm
+                            onCheckedChanged: root.activateInSddm = checked
+                            indicator: AppCheckIndicator {
+                                control: activateCheck
+                                anchors.verticalCenter: parent.verticalCenter
                             }
-                            background: AppSecondaryChrome { control: refreshBtn }
+                            contentItem: Item { implicitWidth: 0; implicitHeight: 16 }
+                        }
+
+                        Label {
+                            text: "Also set as current SDDM theme"
+                            font.family: root.bodyFont
+                            font.pixelSize: 13
+                            color: appColors.textPrimary
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: activateCheck.checked = !activateCheck.checked
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: 1
+                        Layout.preferredHeight: 26
+                        color: appColors.divider
+                        visible: currentThemeHasVariants
+                    }
+
+                    Button {
+                        id: previewBtn
+                        implicitHeight: 40
+                        leftPadding: 18
+                        rightPadding: 18
+                        enabled: (selectedThemeIndex >= 0 && (currentThemeHasVariants ? currentVariant.configFile !== undefined : true)) || greeterPreview.running
+                        onClicked: {
+                            if (greeterPreview.running)
+                                greeterPreview.stopPreview()
+                            else
+                                startFullPreview()
+                        }
+                        contentItem: RowLayout {
+                            spacing: 9
+                            Kirigami.Icon {
+                                source: greeterPreview.running ? "window-close" : "media-playback-start"
+                                Layout.preferredWidth: 13
+                                Layout.preferredHeight: 13
+                                color: appColors.textPrimary
+                            }
+                            Label {
+                                text: greeterPreview.running ? "Close preview" : "Test greeter"
+                                font.family: root.bodyFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 14
+                                color: appColors.textPrimary
+                            }
+                        }
+                        background: GlassSecondaryChrome { control: previewBtn }
+                    }
+
+                    Button {
+                        id: applyBtn
+                        implicitHeight: 40
+                        leftPadding: 22
+                        rightPadding: 22
+                        enabled: selectedThemeIndex >= 0 && (
+                            currentThemeHasVariants
+                                ? (!currentThemeReadOnly && currentVariant.configFile !== undefined)
+                                : currentTheme.id !== undefined)
+                        onClicked: root.applyCurrentSelection()
+                        contentItem: RowLayout {
+                            spacing: 10
+                            Kirigami.Icon {
+                                source: "dialog-ok-apply"
+                                Layout.preferredWidth: 13
+                                Layout.preferredHeight: 13
+                                color: applyBtn.enabled ? "#FFFFFF" : appColors.disabledPrimaryFg
+                            }
+                            Label {
+                                text: currentThemeHasVariants ? "Apply variant" : "Apply theme"
+                                font.family: root.bodyFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 14
+                                color: applyBtn.enabled ? "#FFFFFF" : appColors.disabledPrimaryFg
+                            }
+                        }
+                        background: PrimaryChrome { control: applyBtn }
+                    }
+
+                    ToolButton {
+                        id: overflowBtn
+                        implicitWidth: 32
+                        implicitHeight: 40
+                        onClicked: overflowMenu.open()
+                        contentItem: Label {
+                            text: "⋯"
+                            font.pixelSize: 17
+                            color: appColors.textSecondary
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        background: Item {}
+
+                        Menu {
+                            id: overflowMenu
+                            y: -implicitHeight - 8
+
+                            MenuItem {
+                                text: "Open folder"
+                                enabled: selectedThemeIndex >= 0 && currentTheme.path
+                                onTriggered: root.openThemeInFileManager()
+                            }
+                            MenuItem {
+                                text: "Copy path"
+                                enabled: selectedThemeIndex >= 0 && currentTheme.path
+                                onTriggered: root.copyThemePath()
+                            }
+                            MenuSeparator {}
+                            MenuItem {
+                                text: "Remove theme"
+                                enabled: root.canRemoveCurrentTheme && !themeInstaller.installing
+                                onTriggered: root.requestRemoveCurrentTheme()
+                                contentItem: Label {
+                                    text: "Remove theme"
+                                    font.family: root.bodyFont
+                                    color: overflowMenu.contentItem ? appColors.dangerAccent : appColors.dangerAccent
+                                    leftPadding: 8
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            // ── Library | hero + filmstrip ───────────────────────────
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                spacing: 0
+            // ══ Layer 9 — diagnostics panel ═════════════════════════════
+            GlassPanel {
+                id: diagnosticsPanel
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: appColors.marginOuter
+                width: Math.min(520, parent.width - appColors.marginOuter * 2)
+                visible: opacity > 0.01
+                opacity: root.diagnosticsOpen ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 140 } }
+                backdropSource: stageBackdrop
+                cornerRadius: appColors.radiusModal
+                blurAmount: appColors.blurRadius
+                tint: appColors.sheetBg
+                borderColor: appColors.sheetBorder
+                shadowColor: appColors.sheetShadow
+                shadowVerticalOffset: 0
 
-                Rectangle {
-                    Layout.preferredWidth: 260
-                    Layout.fillHeight: true
-                    color: appColors.sidebar
-
-                    Rectangle {
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        anchors.right: parent.right
-                        width: 1
-                        color: appColors.cardBorder
-                    }
+                Flickable {
+                    anchors.fill: parent
+                    anchors.margins: 28
+                    contentWidth: width
+                    contentHeight: diagCol.implicitHeight
+                    clip: true
 
                     ColumnLayout {
-                        anchors.fill: parent
-                        spacing: 0
+                        id: diagCol
+                        width: parent.width
+                        spacing: 22
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label {
+                                Layout.fillWidth: true
+                                text: "System"
+                                font.family: root.headingFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 21
+                                color: appColors.sheetTextPrimary
+                            }
+                            ToolButton {
+                                implicitWidth: 28
+                                implicitHeight: 28
+                                onClicked: root.diagnosticsOpen = false
+                                contentItem: Label {
+                                    text: "✕"
+                                    font.pixelSize: 16
+                                    color: appColors.sheetTextSecondary
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                background: Item {}
+                            }
+                        }
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            Layout.margins: 16
-                            Layout.bottomMargin: 8
-                            spacing: 12
+                            spacing: 10
 
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 34
-                                radius: appColors.radiusCard
-                                color: appColors.fieldBg
-                                border.width: 1
-                                border.color: themeSearchInput.activeFocus ? appColors.fieldBorderFocus : appColors.fieldBorder
-
-                                RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 10
-                                    anchors.rightMargin: 8
-                                    spacing: 8
-
-                                    Kirigami.Icon {
-                                        source: "edit-find"
-                                        Layout.preferredWidth: 12
-                                        Layout.preferredHeight: 12
-                                        color: appColors.textMuted
-                                    }
-
-                                    TextField {
-                                        id: themeSearchInput
-                                        Layout.fillWidth: true
-                                        placeholderText: "Search themes…"
-                                        font.family: root.bodyFont
-                                        font.pixelSize: 13
-                                        color: appColors.surfaceFg
-                                        placeholderTextColor: appColors.fieldPlaceholder
-                                        selectedTextColor: appColors.surfaceFg
-                                        selectionColor: appColors.fieldSelection
-                                        background: Item {}
-                                        onTextChanged: root.themeSearchText = text
-                                    }
-                                }
+                            Label {
+                                text: "GREETER"
+                                font.family: root.headingFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 11
+                                font.letterSpacing: 1.3
+                                color: appColors.sheetTextTertiary
                             }
-
                             RowLayout {
                                 Layout.fillWidth: true
-
-                                Label {
-                                    text: "INSTALLED (" + themeScanner.themeCount + ")"
-                                    font.family: root.headingFont
-                                    font.weight: Font.DemiBold
-                                    font.pixelSize: 11
-                                    font.letterSpacing: 0.8
-                                    color: appColors.textMuted
-                                }
-
+                                Label { text: "Binary"; color: appColors.sheetTextSecondary; font.family: root.bodyFont; font.pixelSize: 13 }
                                 Item { Layout.fillWidth: true }
-
                                 Label {
-                                    text: "Rescan"
+                                    text: greeterCapabilities.greeterBinary || "—"
+                                    color: appColors.sheetTextPrimary
                                     font.family: root.bodyFont
-                                    font.weight: Font.DemiBold
-                                    font.pixelSize: 12
-                                    color: appColors.primary
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: themeScanner.rescan()
-                                    }
-                                }
-                            }
-                        }
-
-                        ListView {
-                            id: themeListView
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            clip: true
-                            spacing: 2
-                            topMargin: 4
-                            bottomMargin: 8
-                            leftMargin: 8
-                            rightMargin: 8
-                            model: filteredThemeIndices
-
-                            delegate: ThemeListItem {
-                                required property int modelData
-                                themeIndex: modelData
-                                colors: appColors
-                                headingFont: root.headingFont
-                                bodyFont: root.bodyFont
-                                themeName: {
-                                    const theme = themeScanner.themeAt(modelData)
-                                    return theme.name || theme.id || "Theme"
-                                }
-                                themeSubtitle: themeSubtitleText(themeScanner.themeAt(modelData))
-                                thumbnailSource: themeThumbUrl(themeScanner.themeAt(modelData))
-                                scopeLabel: themeScopeLabel(themeScanner.themeAt(modelData))
-                                readOnly: themeScanner.themeAt(modelData).readOnly === true
-                                selected: root.selectedThemeIndex === modelData
-                                onClicked: root.selectedThemeIndex = modelData
-                            }
-
-                            Kirigami.PlaceholderMessage {
-                                anchors.centerIn: parent
-                                width: parent.width - 24
-                                visible: themeScanner.themeCount === 0
-                                text: "No themes yet"
-                                explanation: "Install from a local folder or an archive (zip/tar)."
-                                icon.name: "preferences-desktop-theme"
-                            }
-                        }
-
-                        Button {
-                            id: installPrimaryBtn
-                            Layout.fillWidth: true
-                            Layout.margins: 16
-                            Layout.topMargin: 8
-                            text: "Install Theme"
-                            onClicked: root.openInstallThemeSheet()
-                            leftPadding: 16
-                            rightPadding: 16
-                            topPadding: 10
-                            bottomPadding: 10
-
-                            contentItem: RowLayout {
-                                spacing: 8
-                                Item { Layout.fillWidth: true }
-                                Kirigami.Icon {
-                                    source: "list-add"
-                                    Layout.preferredWidth: 14
-                                    Layout.preferredHeight: 14
-                                    color: appColors.primaryFg
-                                }
-                                Label {
-                                    text: "Install Theme"
-                                    font.family: root.bodyFont
-                                    font.weight: Font.DemiBold
                                     font.pixelSize: 13
-                                    color: appColors.primaryFg
+                                    elide: Text.ElideMiddle
+                                    Layout.maximumWidth: 300
                                 }
+                            }
+                            Rectangle { Layout.fillWidth: true; height: 1; color: appColors.sheetHairline }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label { text: "Stack"; color: appColors.sheetTextSecondary; font.family: root.bodyFont; font.pixelSize: 13 }
                                 Item { Layout.fillWidth: true }
-                            }
-                            background: Rectangle {
-                                radius: appColors.radiusCard
-                                color: installPrimaryBtn.down ? appColors.accentHover
-                                      : (installPrimaryBtn.hovered ? appColors.accentHover : appColors.primary)
-                                Behavior on color { ColorAnimation { duration: 120 } }
-
-                                Rectangle {
-                                    z: -1
-                                    anchors.fill: parent
-                                    anchors.topMargin: 3
-                                    radius: parent.radius
-                                    color: installPrimaryBtn.hovered ? appColors.shadowCardHover : "transparent"
-                                    visible: installPrimaryBtn.hovered || installPrimaryBtn.down
+                                Label {
+                                    text: greeterCapabilities.greeterQtLabel || "—"
+                                    color: appColors.sheetTextPrimary
+                                    font.family: root.bodyFont
+                                    font.pixelSize: 13
                                 }
                             }
                         }
-                    }
-                }
 
-                Flickable {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    contentWidth: width
-                    contentHeight: stageColumn.implicitHeight + 32
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-
-                    ColumnLayout {
-                        id: stageColumn
-                        width: parent.width
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.margins: 24
-                        anchors.top: parent.top
-                        anchors.topMargin: 20
-                        spacing: 16
-
-                        Kirigami.PlaceholderMessage {
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 280
-                            visible: themeScanner.themeCount === 0
-                            text: "Welcome"
-                            explanation: "Install an SDDM theme to get started from a local folder or archive."
-                            icon.name: "preferences-desktop-theme"
-                            helpfulAction: Kirigami.Action {
-                                text: "Install Theme"
-                                icon.name: "list-add"
-                                onTriggered: root.openInstallThemeSheet()
+                            spacing: 10
+
+                            Label {
+                                text: "GREETER MODULES"
+                                font.family: root.headingFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 11
+                                font.letterSpacing: 1.3
+                                color: appColors.sheetTextTertiary
                             }
-                        }
 
-                        Kirigami.PlaceholderMessage {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 280
-                            visible: themeScanner.themeCount > 0 && selectedThemeIndex < 0
-                            text: "Select a theme"
-                            explanation: "Pick a theme from the library on the left."
-                            icon.name: "view-list-details"
-                        }
+                            Flow {
+                                Layout.fillWidth: true
+                                spacing: 9
 
-                        Item {
-                            id: heroStage
-                            visible: selectedThemeIndex >= 0
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Math.max(220, stageColumn.width * 9 / 16)
-
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: appColors.radiusCard
-                                color: appColors.surface2
-                                border.width: 1
-                                border.color: appColors.cardBorder
-                                clip: true
-
-                                AudioOutput {
-                                    id: previewAudio
-                                    volume: 0
-                                    muted: true
-                                }
-
-                                MediaPlayer {
-                                    id: previewPlayer
-                                    audioOutput: previewAudio
-                                    videoOutput: previewVideoOutput
-                                    loops: MediaPlayer.Infinite
-                                    onMediaStatusChanged: function(status) {
-                                        if (!root.previewIsVideo)
-                                            return
-                                        if (status === MediaPlayer.LoadedMedia || status === MediaPlayer.BufferedMedia)
-                                            play()
-                                    }
-                                }
-
-                                VideoOutput {
-                                    id: previewVideoOutput
-                                    anchors.fill: parent
-                                    visible: root.previewIsVideo
-                                    fillMode: VideoOutput.PreserveAspectCrop
-                                }
-
-                                AnimatedImage {
-                                    anchors.fill: parent
-                                    visible: root.previewIsGif
-                                    source: root.previewIsGif ? root.previewMediaUrl : ""
-                                    fillMode: Image.PreserveAspectCrop
-                                    playing: root.previewIsGif
-                                    asynchronous: true
-                                    smooth: true
-                                }
-
-                                Image {
-                                    anchors.fill: parent
-                                    visible: root.previewIsImage
-                                    source: root.previewIsImage ? root.previewMediaUrl : ""
-                                    fillMode: Image.PreserveAspectCrop
-                                    asynchronous: true
-                                    smooth: true
-                                    mipmap: true
-                                }
-
-                                Rectangle {
-                                    anchors.fill: parent
-                                    gradient: Gradient {
-                                        GradientStop { position: 0.55; color: "transparent" }
-                                        GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.40) }
-                                    }
-                                    visible: previewMediaPath.length > 0
-                                }
-
-                                ColumnLayout {
-                                    anchors.left: parent.left
-                                    anchors.top: parent.top
-                                    anchors.margins: 12
-                                    spacing: 8
-
-                                    Rectangle {
-                                        visible: root.selectionIsActive
+                                Repeater {
+                                    model: root.diagnosticsModules
+                                    delegate: Rectangle {
+                                        required property var modelData
                                         radius: height / 2
-                                        color: appColors.badgeSuccessBg
+                                        color: modelData.present ? appColors.successBg
+                                             : (modelData.important ? appColors.warningBg : Qt.rgba(1, 1, 1, .06))
                                         border.width: 1
-                                        border.color: appColors.badgeSuccessBorder
-                                        implicitHeight: curActiveLbl.implicitHeight + 10
-                                        implicitWidth: curActiveRow.implicitWidth + 18
+                                        border.color: modelData.present ? appColors.successBorder
+                                                    : (modelData.important ? appColors.warningBorder : Qt.rgba(1, 1, 1, .12))
+                                        implicitHeight: modChip.implicitHeight + 16
+                                        implicitWidth: modChip.implicitWidth + 26
 
                                         RowLayout {
-                                            id: curActiveRow
+                                            id: modChip
                                             anchors.centerIn: parent
-                                            spacing: 6
+                                            spacing: 8
                                             Rectangle {
                                                 Layout.preferredWidth: 6
                                                 Layout.preferredHeight: 6
                                                 radius: 3
-                                                color: appColors.badgeSuccessText
+                                                color: modelData.present ? appColors.successDot
+                                                     : (modelData.important ? appColors.warningAccent : Qt.rgba(1, 1, 1, .3))
                                             }
                                             Label {
-                                                id: curActiveLbl
-                                                text: "Active"
+                                                text: modelData.name + (modelData.present ? "" : " missing")
                                                 font.family: root.bodyFont
-                                                font.weight: Font.DemiBold
-                                                font.pixelSize: 11
-                                                color: appColors.badgeSuccessText
+                                                font.pixelSize: 13
+                                                color: modelData.present ? appColors.successText
+                                                     : (modelData.important ? appColors.warningText : Qt.rgba(1, 1, 1, .5))
                                             }
                                         }
                                     }
-
-                                    Rectangle {
-                                        visible: root.previewIsVideo
-                                        radius: height / 2
-                                        color: Qt.rgba(0, 0, 0, 0.55)
-                                        implicitHeight: videoBadgeLbl.implicitHeight + 10
-                                        implicitWidth: videoBadgeLbl.implicitWidth + 18
-
-                                        Label {
-                                            id: videoBadgeLbl
-                                            anchors.centerIn: parent
-                                            text: "Video background"
-                                            font.family: root.bodyFont
-                                            font.weight: Font.DemiBold
-                                            font.pixelSize: 11
-                                            color: "#FFFFFF"
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    visible: root.previewTechLabel.length > 0
-                                    anchors.right: parent.right
-                                    anchors.bottom: parent.bottom
-                                    anchors.margins: 12
-                                    radius: height / 2
-                                    color: Qt.rgba(0, 0, 0, 0.55)
-                                    implicitHeight: techLbl.implicitHeight + 10
-                                    implicitWidth: techLbl.implicitWidth + 18
-
-                                    Label {
-                                        id: techLbl
-                                        anchors.centerIn: parent
-                                        text: root.previewTechLabel
-                                        font.family: root.bodyFont
-                                        font.pixelSize: 11
-                                        color: "#FFFFFF"
-                                    }
-                                }
-
-                                Label {
-                                    anchors.centerIn: parent
-                                    visible: previewMediaPath.length === 0
-                                    text: "No preview"
-                                    font.family: root.bodyFont
-                                    color: appColors.textMuted
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            visible: selectedThemeIndex >= 0
-                                     && currentTheme.requiresMultimedia === true
-                                     && !greeterCapabilities.hasQtMultimedia
-                            Layout.fillWidth: true
-                            radius: appColors.radiusCard
-                            color: appColors.warningContainer
-                            border.width: 1
-                            border.color: appColors.warningFg
-                            implicitHeight: mmWarnCol.implicitHeight + 24
-
-                            RowLayout {
-                                id: mmWarnCol
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.top: parent.top
-                                anchors.margins: 12
-                                spacing: 10
-
-                                Kirigami.Icon {
-                                    source: "dialog-warning"
-                                    Layout.preferredWidth: 16
-                                    Layout.preferredHeight: 16
-                                    color: appColors.warningFg
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    wrapMode: Text.WordWrap
-                                    text: "This theme needs QtMultimedia in the system SDDM greeter. Add it to the OS (NixOS: services.displayManager.sddm.extraPackages), then rebuild — the app will not alter theme files."
-                                    font.family: root.bodyFont
-                                    font.pixelSize: 12
-                                    color: appColors.warningFg
-                                }
-                            }
-                        }
-
-                        Kirigami.InlineMessage {
-                            Layout.fillWidth: true
-                            visible: currentThemeHasVariants && currentThemeReadOnly
-                            text: "Read-only Nix theme. Install a writable copy before applying variants."
-                            type: Kirigami.MessageType.Information
-                        }
-
-                        Kirigami.InlineMessage {
-                            Layout.fillWidth: true
-                            visible: selectedThemeIndex >= 0
-                                     && greeterCapabilities.themeIncompatibleWithGreeter(currentTheme)
-                            text: greeterCapabilities.qtCompatibilityWarning(currentTheme)
-                            type: Kirigami.MessageType.Warning
-                        }
-
-                        Kirigami.InlineMessage {
-                            Layout.fillWidth: true
-                            visible: greeterCapabilities.analyzed
-                                     && greeterCapabilities.isNixOS
-                                     && !greeterCapabilities.hasQtMultimedia
-                                     && !(selectedThemeIndex >= 0 && currentTheme.requiresMultimedia === true)
-                            text: "System SDDM greeter is missing QtMultimedia. Video themes will show UI without background until you add kdePackages.qtmultimedia to sddm.extraPackages."
-                            type: Kirigami.MessageType.Information
-                        }
-
-                        Kirigami.InlineMessage {
-                            Layout.fillWidth: true
-                            visible: greeterPreview.running
-                            text: closePreviewHelp
-                            type: Kirigami.MessageType.Positive
-                        }
-
-                        RowLayout {
-                            visible: selectedThemeIndex >= 0
-                            Layout.fillWidth: true
-                            spacing: 12
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 8
-
-                                    Label {
-                                        text: currentTheme.name || currentTheme.id || "Theme"
-                                        font.family: root.headingFont
-                                        font.weight: Font.Bold
-                                        font.pixelSize: 22
-                                        color: appColors.surfaceFg
-                                        elide: Text.ElideRight
-                                    }
-
-                                    Rectangle {
-                                        visible: currentThemeHasVariants && currentVariant.displayName
-                                        radius: height / 2
-                                        color: appColors.primaryContainer
-                                        implicitHeight: variantChipLbl.implicitHeight + 8
-                                        implicitWidth: variantChipLbl.implicitWidth + 16
-                                        Label {
-                                            id: variantChipLbl
-                                            anchors.centerIn: parent
-                                            text: currentVariant.displayName || ""
-                                            font.family: root.bodyFont
-                                            font.weight: Font.DemiBold
-                                            font.pixelSize: 11
-                                            color: appColors.primaryContainerFg
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        radius: height / 2
-                                        color: themeScopeLabel(currentTheme) === "System"
-                                               ? appColors.badgeSystemBg : appColors.badgeUserBg
-                                        implicitHeight: scopeChipLbl.implicitHeight + 8
-                                        implicitWidth: scopeChipLbl.implicitWidth + 16
-                                        Label {
-                                            id: scopeChipLbl
-                                            anchors.centerIn: parent
-                                            text: themeScopeLabel(currentTheme).toUpperCase()
-                                            font.family: root.headingFont
-                                            font.weight: Font.Bold
-                                            font.pixelSize: 10
-                                            color: themeScopeLabel(currentTheme) === "System"
-                                                   ? appColors.badgeSystemText : appColors.badgeUserText
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        visible: currentThemeReadOnly
-                                        radius: height / 2
-                                        color: appColors.badgeReadonlyBg
-                                        implicitHeight: roChipLbl.implicitHeight + 8
-                                        implicitWidth: roChipLbl.implicitWidth + 16
-                                        Label {
-                                            id: roChipLbl
-                                            anchors.centerIn: parent
-                                            text: "RO"
-                                            font.family: root.headingFont
-                                            font.weight: Font.Bold
-                                            font.pixelSize: 10
-                                            color: appColors.badgeReadonlyText
-                                        }
-                                    }
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 16
-
-                                    RowLayout {
-                                        spacing: 6
-                                        Kirigami.Icon {
-                                            source: "folder"
-                                            Layout.preferredWidth: 12
-                                            Layout.preferredHeight: 12
-                                            color: appColors.textMuted
-                                        }
-                                        Label {
-                                            text: currentTheme.path || "—"
-                                            font.family: root.bodyFont
-                                            font.pixelSize: 12
-                                            color: appColors.surfaceVariantFg
-                                            elide: Text.ElideMiddle
-                                            Layout.maximumWidth: 360
-                                        }
-                                    }
-
-                                    RowLayout {
-                                        spacing: 6
-                                        Kirigami.Icon {
-                                            source: "application-x-executable"
-                                            Layout.preferredWidth: 12
-                                            Layout.preferredHeight: 12
-                                            color: appColors.textMuted
-                                        }
-                                        Label {
-                                            text: root.qtStackShort
-                                            font.family: root.bodyFont
-                                            font.pixelSize: 12
-                                            color: currentTheme.requiresQt5 === true ? appColors.warning : appColors.surfaceVariantFg
-                                        }
-                                    }
-
-                                    RowLayout {
-                                        spacing: 6
-                                        Kirigami.Icon {
-                                            source: currentTheme.requiresMultimedia === true ? "media-playback-start" : "dialog-ok"
-                                            Layout.preferredWidth: 12
-                                            Layout.preferredHeight: 12
-                                            color: currentTheme.requiresMultimedia === true
-                                                   && !greeterCapabilities.hasQtMultimedia
-                                                   ? appColors.warning : appColors.textMuted
-                                        }
-                                        Label {
-                                            text: root.multimediaStatusText
-                                            font.family: root.bodyFont
-                                            font.pixelSize: 12
-                                            color: currentTheme.requiresMultimedia === true
-                                                   && !greeterCapabilities.hasQtMultimedia
-                                                   ? appColors.warning : appColors.surfaceVariantFg
-                                        }
-                                    }
-                                }
-                            }
-
-                            RowLayout {
-                                Layout.alignment: Qt.AlignTop | Qt.AlignRight
-                                spacing: 8
-
-                                CheckBox {
-                                    id: activateCheck
-                                    checked: root.activateInSddm
-                                    onCheckedChanged: root.activateInSddm = checked
-                                    Layout.alignment: Qt.AlignVCenter
-                                    indicator: AppCheckIndicator {
-                                        control: activateCheck
-                                        anchors.verticalCenter: parent.verticalCenter
-                                    }
-                                    contentItem: Item { implicitWidth: 0; implicitHeight: 18 }
-                                }
-
-                                Label {
-                                    text: "Also set as current SDDM theme"
-                                    font.family: root.bodyFont
-                                    font.pixelSize: 12
-                                    color: appColors.surfaceFg
-                                    wrapMode: Text.WordWrap
-                                    Layout.maximumWidth: 180
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: activateCheck.checked = !activateCheck.checked
-                                    }
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            visible: selectedThemeIndex >= 0
-                            Layout.fillWidth: true
-                            spacing: 8
-
-                            Button {
-                                id: applyBtn
-                                enabled: selectedThemeIndex >= 0 && (
-                                    currentThemeHasVariants
-                                        ? (!currentThemeReadOnly && currentVariant.configFile !== undefined)
-                                        : currentTheme.id !== undefined)
-                                onClicked: root.applyCurrentSelection()
-                                leftPadding: 16
-                                rightPadding: 16
-                                topPadding: 10
-                                bottomPadding: 10
-
-                                contentItem: RowLayout {
-                                    spacing: 8
-                                    Kirigami.Icon {
-                                        source: "dialog-ok-apply"
-                                        Layout.preferredWidth: 14
-                                        Layout.preferredHeight: 14
-                                        color: appColors.primaryFg
-                                    }
-                                    Label {
-                                        text: "Apply as SDDM Theme"
-                                        font.family: root.bodyFont
-                                        font.weight: Font.DemiBold
-                                        font.pixelSize: 13
-                                        color: appColors.primaryFg
-                                    }
-                                }
-                                background: Rectangle {
-                                    radius: appColors.radiusCard
-                                    color: !applyBtn.enabled ? appColors.disabledPrimary
-                                         : (applyBtn.down || applyBtn.hovered ? appColors.accentHover : appColors.primary)
-                                    Behavior on color { ColorAnimation { duration: 120 } }
-
-                                    Rectangle {
-                                        z: -1
-                                        anchors.fill: parent
-                                        anchors.topMargin: 3
-                                        radius: parent.radius
-                                        color: appColors.shadowCardHover
-                                        visible: applyBtn.enabled && (applyBtn.hovered || applyBtn.down)
-                                    }
-                                }
-                            }
-
-                            Button {
-                                id: previewBtn
-                                enabled: (selectedThemeIndex >= 0 && (currentThemeHasVariants ? currentVariant.configFile !== undefined : true)) || greeterPreview.running
-                                onClicked: {
-                                    if (greeterPreview.running)
-                                        greeterPreview.stopPreview()
-                                    else
-                                        startFullPreview()
-                                }
-                                leftPadding: 14
-                                rightPadding: 14
-                                topPadding: 10
-                                bottomPadding: 10
-
-                                contentItem: RowLayout {
-                                    spacing: 8
-                                    Kirigami.Icon {
-                                        source: greeterPreview.running ? "window-close" : "media-playback-start"
-                                        Layout.preferredWidth: 14
-                                        Layout.preferredHeight: 14
-                                        color: appColors.primary
-                                    }
-                                    Label {
-                                        text: greeterPreview.running ? "Close Preview" : "Full SDDM Preview"
-                                        font.family: root.bodyFont
-                                        font.weight: Font.Medium
-                                        font.pixelSize: 13
-                                        color: appColors.surfaceVariantFg
-                                    }
-                                }
-                                background: AppSecondaryChrome { control: previewBtn }
-                            }
-
-                            Button {
-                                id: openFolderBtn
-                                enabled: selectedThemeIndex >= 0 && currentTheme.path
-                                onClicked: root.openThemeInFileManager()
-                                leftPadding: 14
-                                rightPadding: 14
-                                topPadding: 10
-                                bottomPadding: 10
-
-                                contentItem: RowLayout {
-                                    spacing: 8
-                                    Kirigami.Icon {
-                                        source: "folder-open"
-                                        Layout.preferredWidth: 14
-                                        Layout.preferredHeight: 14
-                                        color: appColors.primary
-                                    }
-                                    Label {
-                                        text: "Open in File Manager"
-                                        font.family: root.bodyFont
-                                        font.weight: Font.Medium
-                                        font.pixelSize: 13
-                                        color: appColors.surfaceVariantFg
-                                    }
-                                }
-                                background: AppSecondaryChrome { control: openFolderBtn }
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            Button {
-                                id: removeThemeBtn
-                                visible: selectedThemeIndex >= 0
-                                enabled: root.canRemoveCurrentTheme && !themeInstaller.installing
-                                onClicked: root.requestRemoveCurrentTheme()
-                                ToolTip.visible: hovered && !enabled && selectedThemeIndex >= 0
-                                ToolTip.text: currentThemeReadOnly
-                                    ? "Read-only system/Nix themes cannot be deleted here"
-                                    : "This theme cannot be removed from the app"
-                                leftPadding: 14
-                                rightPadding: 14
-                                topPadding: 10
-                                bottomPadding: 10
-
-                                contentItem: RowLayout {
-                                    spacing: 8
-                                    Kirigami.Icon {
-                                        source: "edit-delete"
-                                        Layout.preferredWidth: 14
-                                        Layout.preferredHeight: 14
-                                        color: removeThemeBtn.enabled ? appColors.danger : appColors.textMuted
-                                    }
-                                    Label {
-                                        text: "Remove"
-                                        font.family: root.bodyFont
-                                        font.weight: Font.Medium
-                                        font.pixelSize: 13
-                                        color: removeThemeBtn.enabled ? appColors.danger : appColors.textMuted
-                                    }
-                                }
-                                background: Rectangle {
-                                    radius: appColors.radiusCard
-                                    color: !removeThemeBtn.enabled
-                                           ? "transparent"
-                                           : (removeThemeBtn.hovered
-                                              ? appColors.dangerContainer
-                                              : appColors.surface)
-                                    border.width: 1
-                                    border.color: removeThemeBtn.enabled ? appColors.danger : appColors.cardBorder
                                 }
                             }
                         }
 
                         ColumnLayout {
-                            visible: selectedThemeIndex >= 0 && currentThemeHasVariants && currentVariants.length > 0
                             Layout.fillWidth: true
-                            spacing: 10
+                            spacing: 9
+                            visible: root.scannedDirectoriesInfo.length > 0
 
-                            RowLayout {
-                                Layout.fillWidth: true
-
-                                Label {
-                                    text: "VARIANTS · " + currentVariants.length
-                                    font.family: root.headingFont
-                                    font.weight: Font.DemiBold
-                                    font.pixelSize: 11
-                                    font.letterSpacing: 0.8
-                                    color: appColors.textMuted
-                                }
-
-                                Item { Layout.fillWidth: true }
-
-                                Label {
-                                    visible: root.currentConfigHint.length > 0
-                                    text: root.currentConfigHint
-                                    font.family: root.bodyFont
-                                    font.pixelSize: 11
-                                    color: appColors.accentDark
-                                    elide: Text.ElideMiddle
-                                    Layout.maximumWidth: 320
-                                }
+                            Label {
+                                text: "SCANNED DIRECTORIES"
+                                font.family: root.headingFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 11
+                                font.letterSpacing: 1.3
+                                color: appColors.sheetTextTertiary
                             }
 
-                            ListView {
-                                id: variantStrip
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 138
-                                orientation: ListView.Horizontal
-                                spacing: 10
-                                clip: true
-                                boundsBehavior: Flickable.StopAtBounds
-                                model: currentVariants
-
-                                delegate: Item {
+                            Repeater {
+                                model: root.scannedDirectoriesInfo
+                                delegate: RowLayout {
                                     required property var modelData
-                                    required property int index
-                                    width: 230
-                                    height: 129
-
-                                    property bool variantSelected: root.selectedVariantIndex === index
-                                    property bool variantActive: modelData.isActive === true
-
+                                    Layout.fillWidth: true
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: modelData.path
+                                        font.family: root.bodyFont
+                                        font.pixelSize: 13
+                                        color: Qt.rgba(1, 1, 1, .7)
+                                        elide: Text.ElideMiddle
+                                    }
                                     Rectangle {
-                                        id: stripChrome
-                                        anchors.fill: parent
-                                        radius: appColors.radiusCard
-                                        color: appColors.surface
-                                        border.width: variantSelected ? 2 : 1
-                                        border.color: variantSelected || stripHover.hovered
-                                                       ? appColors.primary : appColors.cardBorder
-                                        clip: true
-
-                                        Behavior on border.color { ColorAnimation { duration: 120 } }
-
-                                        Rectangle {
-                                            z: -1
-                                            anchors.fill: parent
-                                            anchors.topMargin: stripHover.hovered || variantSelected
-                                                               ? appColors.shadowYHover : appColors.shadowY
-                                            radius: parent.radius
-                                            color: stripHover.hovered || variantSelected
-                                                   ? appColors.shadowCardHover : appColors.shadowCard
-                                        }
-
-                                        VariantThumbnail {
-                                            anchors.fill: parent
-                                            mediaSource: modelData.thumbnailPath ? "file://" + modelData.thumbnailPath : ""
-                                        }
-
-                                        Rectangle {
-                                            visible: variantActive
-                                            anchors.top: parent.top
-                                            anchors.left: parent.left
-                                            anchors.margins: 8
-                                            radius: height / 2
-                                            color: appColors.primary
-                                            implicitHeight: stripActiveLbl.implicitHeight + 8
-                                            implicitWidth: stripActiveRow.implicitWidth + 16
-
-                                            RowLayout {
-                                                id: stripActiveRow
-                                                anchors.centerIn: parent
-                                                spacing: 5
-                                                Rectangle {
-                                                    Layout.preferredWidth: 5
-                                                    Layout.preferredHeight: 5
-                                                    radius: 3
-                                                    color: appColors.primaryFg
-                                                }
-                                                Label {
-                                                    id: stripActiveLbl
-                                                    text: "Active"
-                                                    font.family: root.bodyFont
-                                                    font.weight: Font.DemiBold
-                                                    font.pixelSize: 10
-                                                    color: appColors.primaryFg
-                                                }
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            anchors.left: parent.left
-                                            anchors.right: parent.right
-                                            anchors.bottom: parent.bottom
-                                            height: 36
-                                            gradient: Gradient {
-                                                GradientStop { position: 0.0; color: "transparent" }
-                                                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.55) }
-                                            }
-                                        }
-
+                                        radius: 5
+                                        border.width: 1
+                                        border.color: modelData.scope === "READ-ONLY" ? appColors.badgeReadonlyBorder
+                                                    : (modelData.scope === "USER" ? appColors.badgeUserBorder : appColors.badgeBorder)
+                                        implicitHeight: dirScopeLbl.implicitHeight + 6
+                                        implicitWidth: dirScopeLbl.implicitWidth + 12
                                         Label {
-                                            anchors.left: parent.left
-                                            anchors.right: parent.right
-                                            anchors.bottom: parent.bottom
-                                            anchors.margins: 8
-                                            text: modelData.displayName || modelData.id || ""
+                                            id: dirScopeLbl
+                                            anchors.centerIn: parent
+                                            text: modelData.scope
                                             font.family: root.headingFont
-                                            font.weight: Font.DemiBold
-                                            font.pixelSize: 12
-                                            color: "#FFFFFF"
-                                            elide: Text.ElideRight
-                                        }
-
-                                        HoverHandler { id: stripHover }
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: root.selectedVariantIndex = index
+                                            font.weight: Font.Bold
+                                            font.pixelSize: 10
+                                            font.letterSpacing: 0.6
+                                            color: modelData.scope === "READ-ONLY" ? appColors.badgeReadonlyText
+                                                 : (modelData.scope === "USER" ? appColors.badgeUserText : appColors.badgeText)
                                         }
                                     }
                                 }
                             }
                         }
 
-                        Rectangle {
-                            visible: selectedThemeIndex >= 0 && !currentThemeHasVariants
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            radius: appColors.radiusCard
-                            color: appColors.surface
-                            border.width: 1
-                            border.color: appColors.cardBorder
-                            implicitHeight: simpleNoteLbl.implicitHeight + 24
+                            spacing: 10
 
                             Label {
-                                id: simpleNoteLbl
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                anchors.margins: 14
-                                wrapMode: Text.WordWrap
-                                text: "Simple theme — no Themes/*.conf variant pack. Apply the theme as a whole."
-                                font.family: root.bodyFont
-                                font.pixelSize: 12
-                                color: appColors.textMuted
+                                text: "TOOLS"
+                                font.family: root.headingFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 11
+                                font.letterSpacing: 1.3
+                                color: appColors.sheetTextTertiary
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label { text: "ffmpeg"; color: appColors.sheetTextSecondary; font.family: root.bodyFont; font.pixelSize: 13 }
+                                Item { Layout.fillWidth: true }
+                                Label {
+                                    text: themeScanner.ffmpegAvailable ? "available — sharp video thumbnails" : "missing — thumbnails will be generic"
+                                    color: themeScanner.ffmpegAvailable ? appColors.successText : appColors.sheetTextSecondary
+                                    font.family: root.bodyFont
+                                    font.pixelSize: 13
+                                }
+                            }
+                            Rectangle { Layout.fillWidth: true; height: 1; color: appColors.sheetHairline }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label { text: "git"; color: appColors.sheetTextSecondary; font.family: root.bodyFont; font.pixelSize: 13 }
+                                Item { Layout.fillWidth: true }
+                                Label {
+                                    text: themeInstaller.gitAvailable ? "available — install from GitHub" : "missing — GitHub install disabled"
+                                    color: themeInstaller.gitAvailable ? appColors.successText : appColors.sheetTextSecondary
+                                    font.family: root.bodyFont
+                                    font.pixelSize: 13
+                                }
                             }
                         }
 
-                        Item { Layout.preferredHeight: 8 }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            visible: greeterCapabilities.isNixOS
+                            radius: 12
+                            color: appColors.primaryContainer
+                            border.width: 1
+                            border.color: appColors.primaryContainerBorder
+                            implicitHeight: nixosCol.implicitHeight + 28
+
+                            ColumnLayout {
+                                id: nixosCol
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.margins: 14
+                                spacing: 6
+
+                                Label {
+                                    text: "NixOS detected"
+                                    font.family: root.bodyFont
+                                    font.weight: Font.Bold
+                                    font.pixelSize: 13
+                                    color: "#FFFFFF"
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    text: greeterCapabilities.nixosHint
+                                    font.family: root.bodyFont
+                                    font.pixelSize: 13
+                                    lineHeight: 1.5
+                                    color: appColors.primaryContainerText
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            // ── Footer 28px ──────────────────────────────────────────
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 28
-                color: appColors.surface
-
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    height: 1
-                    color: appColors.cardBorder
-                }
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 20
-                    anchors.rightMargin: 20
-
-                    Label {
-                        text: themeScanner.themeCount + " theme" + (themeScanner.themeCount === 1 ? "" : "s")
-                              + " installed · " + root.totalVariantCount + " variant"
-                              + (root.totalVariantCount === 1 ? "" : "s") + " total"
-                        font.family: root.bodyFont
-                        font.pixelSize: 11
-                        color: appColors.textMuted
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    Label {
-                        visible: statusMessage.length > 0
-                        text: statusMessage
-                        font.family: root.bodyFont
-                        font.pixelSize: 11
-                        color: appColors.textMuted
-                        elide: Text.ElideRight
-                        Layout.maximumWidth: parent.width * 0.28
-                    }
-
-                    ToolButton {
-                        id: copyCmdBtn
-                        implicitWidth: 24
-                        implicitHeight: 24
-                        onClicked: root.copyPreviewCommand()
-                        ToolTip.visible: hovered
-                        ToolTip.text: "Copy preview command"
-                        contentItem: Kirigami.Icon {
-                            source: "edit-copy"
-                            color: appColors.primary
-                        }
-                        background: Rectangle {
-                            radius: 6
-                            color: copyCmdBtn.hovered
-                                   ? Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.12)
-                                   : "transparent"
-                        }
-                    }
-
-                    Label {
-                        text: root.greeterFooterText.length > 0
-                              ? root.greeterFooterText
-                              : ("SDDM Variant Manager v" + root.appVersion)
-                        font.family: root.bodyFont
-                        font.pixelSize: 11
-                        color: appColors.textMuted
-                        elide: Text.ElideRight
-                        Layout.maximumWidth: parent.width * 0.42
-                    }
-                }
+            MouseArea {
+                anchors.fill: parent
+                visible: root.diagnosticsOpen
+                z: diagnosticsPanel.z - 1
+                onClicked: root.diagnosticsOpen = false
             }
         }
     }
 
-    // ── Install Modal (Popup avoids Kirigami OverlaySheet implicitHeight loops) ──
+    // ── Install theme sheet ────────────────────────────────────────────
     Popup {
         id: installThemeSheet
         parent: Overlay.overlay
@@ -1822,312 +2040,232 @@ Kirigami.ApplicationWindow {
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         anchors.centerIn: parent
-        width: Math.min(root.width * 0.5, 540)
-        padding: 0
-        // Height follows content; cap so small windows still scroll via Flickable if needed.
-        implicitHeight: Math.min(installSheetBody.implicitHeight, root.height * 0.88)
+        width: Math.min(root.width * 0.5, 660)
+        padding: 28
+        implicitHeight: Math.min(installSheetBody.implicitHeight + 56, root.height * 0.9)
 
         background: Rectangle {
             radius: appColors.radiusModal
-            color: appColors.surface
+            color: appColors.sheetBg
             border.width: 1
-            border.color: appColors.cardBorder
+            border.color: appColors.sheetBorder
         }
 
         Overlay.modal: Rectangle {
-            color: appColors.overlayScrim
+            color: appColors.isDark ? Qt.rgba(0.0235, 0.0275, 0.0431, .65) : Qt.rgba(0.0784, 0.0627, 0.1569, .4)
         }
 
-        ColumnLayout {
-            id: installSheetBody
-            width: installThemeSheet.width
-            spacing: 0
+        Flickable {
+            anchors.fill: parent
+            contentWidth: width
+            contentHeight: installSheetBody.implicitHeight
+            clip: true
 
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin: 24
-                Layout.rightMargin: 16
-                Layout.topMargin: 20
-                Layout.bottomMargin: 16
+            ColumnLayout {
+                id: installSheetBody
+                width: parent.width
+                spacing: 0
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    Label {
+                        text: "Install theme"
+                        font.family: root.headingFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 22
+                        color: appColors.sheetTextPrimary
+                    }
+
+                    Rectangle {
+                        visible: root.installTabIndex === 1
+                        radius: 5
+                        border.width: 1
+                        border.color: appColors.betaBorder
+                        implicitHeight: betaLbl.implicitHeight + 6
+                        implicitWidth: betaLbl.implicitWidth + 14
+                        Label {
+                            id: betaLbl
+                            anchors.centerIn: parent
+                            text: "BETA"
+                            font.family: root.headingFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 11
+                            font.letterSpacing: 0.8
+                            color: appColors.betaText
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+                }
 
                 Label {
                     Layout.fillWidth: true
-                    text: "Install Theme"
-                    font.family: root.headingFont
-                    font.weight: Font.Bold
-                    font.pixelSize: 18
-                    color: appColors.surfaceFg
+                    Layout.topMargin: 6
+                    wrapMode: Text.WordWrap
+                    text: "Every folder with a valid metadata.desktop at the source gets installed."
+                    font.family: root.bodyFont
+                    font.pixelSize: 14
+                    color: appColors.sheetTextSecondary
                 }
 
-                ToolButton {
-                    id: installSheetCloseBtn
-                    implicitWidth: 32
-                    implicitHeight: 32
-                    onClicked: installThemeSheet.close()
-                    contentItem: Kirigami.Icon {
-                        source: "window-close"
-                        color: appColors.textMuted
-                    }
-                    background: Rectangle {
-                        radius: 8
-                        color: installSheetCloseBtn.hovered
-                               ? appColors.sidebar
-                               : "transparent"
-                    }
-                }
-            }
+                RowLayout {
+                    Layout.topMargin: 22
+                    spacing: 4
 
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin: 24
-                Layout.rightMargin: 24
-                spacing: 20
-
-                Item {
-                    id: fromFileTabBtn
-                    implicitHeight: 36
-                    implicitWidth: fromFileTabRow.implicitWidth + 4
-                    Accessible.role: Accessible.PageTab
-                    Accessible.name: "From file"
-                    Accessible.checkable: true
-                    Accessible.checked: root.installTabIndex === 0
-
-                    RowLayout {
-                        id: fromFileTabRow
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 6
-                        Kirigami.Icon {
-                            Layout.preferredWidth: 14
-                            Layout.preferredHeight: 14
-                            source: "folder-open"
-                            color: root.installTabIndex === 0 ? appColors.accentDark : appColors.textMuted
-                        }
-                        Label {
-                            text: "From file"
-                            font.family: root.headingFont
-                            font.weight: root.installTabIndex === 0 ? Font.Bold : Font.DemiBold
-                            font.pixelSize: 13
-                            color: root.installTabIndex === 0 ? appColors.accentDark : appColors.textMuted
-                        }
-                    }
                     Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 2
-                        color: root.installTabIndex === 0 ? appColors.primary : "transparent"
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        hoverEnabled: true
-                        onClicked: root.installTabIndex = 0
-                    }
-                }
+                        radius: 11
+                        color: appColors.sheetTrackBg
+                        implicitHeight: tabsRow.implicitHeight + 6
+                        implicitWidth: tabsRow.implicitWidth + 6
 
-                Item {
-                    id: githubTabBtn
-                    implicitHeight: 36
-                    implicitWidth: githubTabRow.implicitWidth + 4
-                    Accessible.role: Accessible.PageTab
-                    Accessible.name: "GitHub BETA"
-                    Accessible.checkable: true
-                    Accessible.checked: root.installTabIndex === 1
+                        RowLayout {
+                            id: tabsRow
+                            anchors.centerIn: parent
+                            spacing: 4
 
-                    RowLayout {
-                        id: githubTabRow
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 8
-                        Kirigami.Icon {
-                            Layout.preferredWidth: 14
-                            Layout.preferredHeight: 14
-                            source: "folder-remote"
-                            color: root.installTabIndex === 1 ? appColors.accentDark : appColors.textMuted
-                        }
-                        Label {
-                            text: "GitHub"
-                            font.family: root.headingFont
-                            font.weight: root.installTabIndex === 1 ? Font.Bold : Font.DemiBold
-                            font.pixelSize: 13
-                            color: root.installTabIndex === 1 ? appColors.accentDark : appColors.textMuted
-                        }
-                        Rectangle {
-                            radius: height / 2
-                            color: appColors.badgeBetaBg
-                            border.width: 1
-                            border.color: appColors.badgeBetaBorder
-                            implicitHeight: betaLbl.implicitHeight + 4
-                            implicitWidth: betaLbl.implicitWidth + 12
-                            Label {
-                                id: betaLbl
-                                anchors.centerIn: parent
-                                text: "BETA"
-                                font.family: root.headingFont
-                                font.weight: Font.Bold
-                                font.pixelSize: 9
-                                color: appColors.badgeBetaText
+                            Rectangle {
+                                radius: 8
+                                color: root.installTabIndex === 0 ? appColors.sheetTabActiveBg : "transparent"
+                                implicitHeight: fromFileLbl.implicitHeight + 16
+                                implicitWidth: fromFileLbl.implicitWidth + 36
+                                Label {
+                                    id: fromFileLbl
+                                    anchors.centerIn: parent
+                                    text: "From file"
+                                    font.family: root.bodyFont
+                                    font.weight: Font.Bold
+                                    font.pixelSize: 14
+                                    color: root.installTabIndex === 0 ? appColors.sheetTabActiveText : appColors.sheetTextSecondary
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.installTabIndex = 0
+                                }
+                            }
+
+                            Rectangle {
+                                radius: 8
+                                color: root.installTabIndex === 1 ? appColors.sheetTabActiveBg : "transparent"
+                                implicitHeight: githubLbl.implicitHeight + 16
+                                implicitWidth: githubLbl.implicitWidth + 36
+                                Label {
+                                    id: githubLbl
+                                    anchors.centerIn: parent
+                                    text: "GitHub"
+                                    font.family: root.bodyFont
+                                    font.weight: Font.Bold
+                                    font.pixelSize: 14
+                                    color: root.installTabIndex === 1 ? appColors.sheetTabActiveText : appColors.sheetTextSecondary
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.installTabIndex = 1
+                                }
                             }
                         }
                     }
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 2
-                        color: root.installTabIndex === 1 ? appColors.primary : "transparent"
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        hoverEnabled: true
-                        onClicked: root.installTabIndex = 1
-                    }
+
+                    Item { Layout.fillWidth: true }
                 }
-
-                Item { Layout.fillWidth: true }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                height: 1
-                color: appColors.cardBorder
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin: 24
-                Layout.rightMargin: 24
-                Layout.topMargin: 20
-                Layout.bottomMargin: 8
-                spacing: 0
-
 
                 ColumnLayout {
                     id: fileTabBody
                     visible: root.installTabIndex === 0
                     Layout.fillWidth: true
-                    spacing: 12
+                    Layout.topMargin: 24
+                    spacing: 10
 
-                    Rectangle {
+                    Label {
+                        text: "SOURCE"
+                        font.family: root.headingFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 11
+                        font.letterSpacing: 1.3
+                        color: appColors.sheetTextTertiary
+                    }
+
+                    RowLayout {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 160
-                        radius: appColors.radiusCard
-                        color: dropZoneMouse.containsMouse ? appColors.primaryContainer : "transparent"
-                        border.width: 2
-                        border.color: dropZoneMouse.containsMouse ? appColors.primary : appColors.cardBorder
+                        spacing: 10
 
-                        MouseArea {
-                            id: dropZoneMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
+                        TextField {
+                            id: localPathField
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 44
+                            text: root.localInstallPath
+                            placeholderText: "Paste a path or choose below"
+                            font.family: root.bodyFont
+                            font.pixelSize: 14
+                            color: appColors.sheetTextPrimary
+                            placeholderTextColor: appColors.sheetTextTertiary
+                            selectedTextColor: appColors.sheetTextPrimary
+                            selectionColor: Qt.rgba(0.5451, 0.4039, 0.949, .4)
+                            leftPadding: 14
+                            rightPadding: 14
+                            background: Rectangle {
+                                radius: appColors.radiusButton
+                                color: appColors.sheetFieldBg
+                                border.width: 1
+                                border.color: localPathField.activeFocus ? appColors.fieldBorderFocus : appColors.sheetFieldBorder
+                            }
+                            onTextEdited: root.localInstallPath = text
+                            onAccepted: root.confirmInstallTheme()
                         }
 
-                        ColumnLayout {
-                            anchors.centerIn: parent
-                            spacing: 10
-
-                            Rectangle {
-                                Layout.alignment: Qt.AlignHCenter
-                                width: 48
-                                height: 48
-                                radius: 12
-                                color: appColors.primaryContainer
-
-                                Kirigami.Icon {
-                                    anchors.centerIn: parent
-                                    width: 22
-                                    height: 22
-                                    source: "cloud-upload"
-                                    color: appColors.primary
-                                }
-                            }
-
-                            Label {
-                                Layout.alignment: Qt.AlignHCenter
-                                text: "Drop theme archive or folder here"
-                                font.family: root.headingFont
-                                font.weight: Font.DemiBold
-                                font.pixelSize: 14
-                                color: appColors.surfaceFg
-                            }
-
-                            Label {
-                                Layout.alignment: Qt.AlignHCenter
-                                text: "Supports .tar.gz, .zip, .tar.xz — or a theme folder"
+                        Button {
+                            id: chooseArchiveBtn
+                            implicitHeight: 44
+                            leftPadding: 16
+                            rightPadding: 16
+                            onClicked: archiveFileDialog.open()
+                            contentItem: Label {
+                                text: "File…"
                                 font.family: root.bodyFont
-                                font.pixelSize: 12
-                                color: appColors.textMuted
+                                font.weight: Font.Bold
+                                font.pixelSize: 14
+                                color: appColors.sheetTextPrimary
                             }
+                            background: Rectangle {
+                                radius: appColors.radiusButton
+                                color: chooseArchiveBtn.hovered ? Qt.rgba(1, 1, 1, .12) : Qt.rgba(1, 1, 1, .08)
+                                border.width: 1
+                                border.color: Qt.rgba(1, 1, 1, .14)
+                            }
+                        }
 
-                            RowLayout {
-                                Layout.alignment: Qt.AlignHCenter
-                                spacing: 8
-
-                                Button {
-                                    id: chooseArchiveBtn
-                                    padding: 10
-                                    onClicked: archiveFileDialog.open()
-                                    contentItem: RowLayout {
-                                        spacing: 6
-                                        Kirigami.Icon {
-                                            source: "document-open"
-                                            Layout.preferredWidth: 14
-                                            Layout.preferredHeight: 14
-                                            color: appColors.primary
-                                        }
-                                        Label {
-                                            text: "Choose Archive…"
-                                            font.family: root.bodyFont
-                                            font.pixelSize: 12
-                                            color: appColors.surfaceFg
-                                        }
-                                    }
-                                    background: AppSecondaryChrome { control: chooseArchiveBtn }
-                                }
-                                Button {
-                                    id: chooseFolderBtn
-                                    padding: 10
-                                    onClicked: themeFolderDialog.open()
-                                    contentItem: RowLayout {
-                                        spacing: 6
-                                        Kirigami.Icon {
-                                            source: "folder-open"
-                                            Layout.preferredWidth: 14
-                                            Layout.preferredHeight: 14
-                                            color: appColors.primary
-                                        }
-                                        Label {
-                                            text: "Choose Folder…"
-                                            font.family: root.bodyFont
-                                            font.pixelSize: 12
-                                            color: appColors.surfaceFg
-                                        }
-                                    }
-                                    background: AppSecondaryChrome { control: chooseFolderBtn }
-                                }
+                        Button {
+                            id: chooseFolderBtn
+                            implicitHeight: 44
+                            leftPadding: 16
+                            rightPadding: 16
+                            onClicked: themeFolderDialog.open()
+                            contentItem: Label {
+                                text: "Folder…"
+                                font.family: root.bodyFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 14
+                                color: appColors.sheetTextPrimary
+                            }
+                            background: Rectangle {
+                                radius: appColors.radiusButton
+                                color: chooseFolderBtn.hovered ? Qt.rgba(1, 1, 1, .12) : Qt.rgba(1, 1, 1, .08)
+                                border.width: 1
+                                border.color: Qt.rgba(1, 1, 1, .14)
                             }
                         }
                     }
 
-                    TextField {
-                        id: localPathField
+                    Label {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 38
-                        text: root.localInstallPath
-                        placeholderText: "/path/to/theme-or-archive.zip"
+                        wrapMode: Text.Wrap
+                        text: "zip · tar · tar.gz · tar.xz · tar.bz2 · tar.zst — or a folder with metadata.desktop"
                         font.family: root.bodyFont
-                        font.pixelSize: 12
-                        color: appColors.surfaceFg
-                        placeholderTextColor: appColors.fieldPlaceholder
-                        selectedTextColor: appColors.surfaceFg
-                        selectionColor: appColors.fieldSelection
-                        leftPadding: 12
-                        rightPadding: 12
-                        background: AppFieldBackground { control: localPathField }
-                        onTextEdited: root.localInstallPath = text
-                        onAccepted: root.confirmInstallTheme()
+                        font.pixelSize: 13
+                        color: appColors.sheetTextTertiary
                     }
                 }
 
@@ -2135,65 +2273,46 @@ Kirigami.ApplicationWindow {
                     id: githubTabBody
                     visible: root.installTabIndex === 1
                     Layout.fillWidth: true
-                    spacing: 16
+                    Layout.topMargin: 24
+                    spacing: 10
 
-                    ColumnLayout {
+                    Label {
+                        text: "PUBLIC REPOSITORY"
+                        font.family: root.headingFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 11
+                        font.letterSpacing: 1.3
+                        color: appColors.sheetTextTertiary
+                    }
+
+                    TextField {
+                        id: githubUrlField
                         Layout.fillWidth: true
-                        spacing: 6
-
-                        Label {
-                            text: "Repository URL"
-                            font.family: root.headingFont
-                            font.weight: Font.Bold
-                            font.pixelSize: 12
-                            color: appColors.surfaceFg
+                        Layout.preferredHeight: 44
+                        text: root.githubInstallUrl
+                        placeholderText: "https://github.com/user/sddm-theme-name"
+                        font.family: root.bodyFont
+                        font.pixelSize: 14
+                        color: appColors.sheetTextPrimary
+                        placeholderTextColor: appColors.sheetTextTertiary
+                        selectedTextColor: appColors.sheetTextPrimary
+                        selectionColor: Qt.rgba(0.5451, 0.4039, 0.949, .4)
+                        leftPadding: 14
+                        rightPadding: 14
+                        background: Rectangle {
+                            radius: appColors.radiusButton
+                            color: appColors.sheetFieldBg
+                            border.width: 1
+                            border.color: githubUrlField.activeFocus ? appColors.fieldBorderFocus : appColors.sheetFieldBorder
                         }
-
-                        Item {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 42
-
-                            TextField {
-                                id: githubUrlField
-                                anchors.fill: parent
-                                text: root.githubInstallUrl
-                                placeholderText: "https://github.com/user/sddm-theme-name"
-                                font.family: root.bodyFont
-                                font.pixelSize: 13
-                                color: appColors.surfaceFg
-                                placeholderTextColor: appColors.fieldPlaceholder
-                                selectedTextColor: appColors.surfaceFg
-                                selectionColor: appColors.fieldSelection
-                                leftPadding: 38
-                                rightPadding: 12
-                                background: Rectangle {
-                                    radius: appColors.radiusCard
-                                    color: appColors.background
-                                    border.width: 1
-                                    border.color: githubUrlField.activeFocus ? appColors.fieldBorderFocus : appColors.fieldBorder
-                                }
-                                onTextEdited: root.githubInstallUrl = text
-                                onAccepted: root.confirmInstallTheme()
-                            }
-
-                            Kirigami.Icon {
-                                anchors.left: parent.left
-                                anchors.leftMargin: 12
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: 16
-                                height: 16
-                                source: "folder-remote"
-                                color: appColors.textMuted
-                            }
-                        }
+                        onTextEdited: root.githubInstallUrl = text
+                        onAccepted: root.confirmInstallTheme()
                     }
 
                     Rectangle {
                         Layout.fillWidth: true
-                        radius: appColors.radiusCard
-                        color: Qt.rgba(appColors.sidebar.r, appColors.sidebar.g, appColors.sidebar.b, 0.6)
-                        border.width: 1
-                        border.color: Qt.rgba(appColors.primary.r, appColors.primary.g, appColors.primary.b, 0.18)
+                        radius: appColors.radiusButton
+                        color: Qt.rgba(1, 1, 1, .05)
                         implicitHeight: experimentalNoteRow.implicitHeight + 24
 
                         RowLayout {
@@ -2201,9 +2320,7 @@ Kirigami.ApplicationWindow {
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.top: parent.top
-                            anchors.leftMargin: 16
-                            anchors.rightMargin: 16
-                            anchors.topMargin: 12
+                            anchors.margins: 12
                             spacing: 10
 
                             Kirigami.Icon {
@@ -2211,17 +2328,18 @@ Kirigami.ApplicationWindow {
                                 Layout.preferredHeight: 16
                                 Layout.alignment: Qt.AlignTop
                                 source: "help-hint"
-                                color: appColors.accentDark
+                                color: appColors.sheetTextSecondary
                             }
 
                             Label {
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
                                 textFormat: Text.StyledText
-                                text: "Experimental: this app reads <b>install.sh</b> to find the theme folder and copies it into this distro’s SDDM theme directories — it never runs the script."
+                                text: "The app clones the repository and <b style=\"color:#fff\">reads</b> install.sh — it never runs it. Theme folders are copied into this distro's SDDM directories."
                                 font.family: root.bodyFont
-                                font.pixelSize: 12
-                                color: appColors.surfaceVariantFg
+                                font.pixelSize: 13
+                                lineHeight: 1.5
+                                color: appColors.sheetTextSecondary
                             }
                         }
                     }
@@ -2235,7 +2353,7 @@ Kirigami.ApplicationWindow {
                             Layout.preferredWidth: 14
                             Layout.preferredHeight: 14
                             source: "dialog-information"
-                            color: appColors.textMuted
+                            color: appColors.sheetTextTertiary
                         }
 
                         Label {
@@ -2245,110 +2363,134 @@ Kirigami.ApplicationWindow {
                             text: "Install <b>git</b> to enable GitHub clone (Nix: nix profile add nixpkgs#git · Arch: pacman -S git)."
                             font.family: root.bodyFont
                             font.pixelSize: 12
-                            color: appColors.textMuted
+                            color: appColors.sheetTextTertiary
                         }
                     }
                 }
 
-                CheckBox {
-                    id: systemWideCheck
-                    Layout.topMargin: 16
-                    text: "Install system-wide — requires admin password"
-                    font.family: root.bodyFont
-                    spacing: 10
-                    indicator: AppCheckIndicator {
-                        control: systemWideCheck
-                        anchors.verticalCenter: parent.verticalCenter
+                Rectangle { Layout.fillWidth: true; Layout.topMargin: 24; height: 1; color: appColors.sheetHairline }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 18
+                    spacing: 13
+
+                    CheckBox {
+                        id: systemWideCheck
+                        indicator: AppCheckIndicator {
+                            control: systemWideCheck
+                            onGlass: false
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        contentItem: Item { implicitWidth: 0; implicitHeight: 18 }
                     }
-                    contentItem: Label {
-                        text: systemWideCheck.text
-                        font.family: root.bodyFont
-                        font.pixelSize: 13
-                        color: appColors.surfaceFg
-                        leftPadding: systemWideCheck.indicator.width + systemWideCheck.spacing
-                        verticalAlignment: Text.AlignVCenter
-                        wrapMode: Text.WordWrap
+
+                    ColumnLayout {
+                        spacing: 2
+                        Label {
+                            text: "Install system-wide"
+                            font.family: root.bodyFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 14
+                            color: appColors.sheetTextPrimary
+                        }
+                        Label {
+                            text: "Requires admin password (pkexec)"
+                            font.family: root.bodyFont
+                            font.pixelSize: 12
+                            color: appColors.sheetTextTertiary
+                        }
+                    }
+
+                    MouseArea {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: systemWideCheck.checked = !systemWideCheck.checked
                     }
                 }
 
-                Label {
+                Rectangle {
                     Layout.fillWidth: true
-                    Layout.topMargin: 8
-                    visible: root.installTabIndex === 0
-                    wrapMode: Text.Wrap
-                    text: "User install: ~/.local/share/sddm/themes/. System-wide: /var/lib/sddm/themes/ (NixOS) or /usr/share/sddm/themes/."
-                    font.family: root.bodyFont
-                    font.pixelSize: 11
-                    color: appColors.textMuted
+                    Layout.topMargin: 14
+                    radius: appColors.radiusButton
+                    color: Qt.rgba(0.5451, 0.4039, 0.949, .12)
+                    border.width: 1
+                    border.color: Qt.rgba(0.5451, 0.4039, 0.949, .28)
+                    implicitHeight: destinationRow.implicitHeight + 20
+
+                    RowLayout {
+                        id: destinationRow
+                        anchors.centerIn: parent
+                        spacing: 10
+
+                        Kirigami.Icon {
+                            Layout.preferredWidth: 14
+                            Layout.preferredHeight: 14
+                            source: "folder"
+                            color: "#B49BFA"
+                        }
+
+                        Label {
+                            textFormat: Text.StyledText
+                            font.family: root.bodyFont
+                            font.pixelSize: 13
+                            color: "#CBB9FB"
+                            text: "Installs to <span style=\"color:#fff;font-weight:700\">"
+                                  + (systemWideCheck.checked
+                                     ? "/var/lib/sddm/themes/ (NixOS) or /usr/share/sddm/themes/"
+                                     : "~/.local/share/sddm/themes/")
+                                  + "</span>"
+                        }
+                    }
                 }
 
                 BusyIndicator {
                     Layout.alignment: Qt.AlignHCenter
-                    Layout.topMargin: 8
+                    Layout.topMargin: 12
                     running: themeInstaller.installing
                     visible: running
                 }
 
                 Label {
                     Layout.fillWidth: true
-                    Layout.bottomMargin: 4
+                    Layout.topMargin: 8
                     wrapMode: Text.Wrap
                     visible: themeInstaller.progressMessage.length > 0
                     text: themeInstaller.progressMessage
                     font.family: root.bodyFont
-                    font.pixelSize: 12
-                    color: appColors.surfaceVariantFg
-                }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                color: Qt.rgba(appColors.background.r, appColors.background.g, appColors.background.b, 0.55)
-                implicitHeight: installFooterRow.implicitHeight + 32
-
-                Rectangle {
-                    anchors.top: parent.top
-                    width: parent.width
-                    height: 1
-                    color: appColors.cardBorder
+                    font.pixelSize: 13
+                    color: appColors.sheetTextSecondary
                 }
 
                 RowLayout {
-                    id: installFooterRow
-                    anchors.right: parent.right
-                    anchors.rightMargin: 24
-                    anchors.verticalCenter: parent.verticalCenter
+                    Layout.fillWidth: true
+                    Layout.topMargin: 26
                     spacing: 12
+
+                    Item { Layout.fillWidth: true }
 
                     Button {
                         id: installCancelBtn
-                        implicitHeight: 42
-                        padding: 12
-                        leftPadding: 16
-                        rightPadding: 16
+                        implicitHeight: 44
+                        leftPadding: 20
+                        rightPadding: 20
                         onClicked: installThemeSheet.close()
                         contentItem: Label {
                             text: "Cancel"
                             font.family: root.headingFont
                             font.weight: Font.Bold
-                            font.pixelSize: 13
-                            color: appColors.surfaceFg
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                            font.pixelSize: 14
+                            color: appColors.sheetTextSecondary
                         }
-                        background: Rectangle {
-                            radius: appColors.radiusCard
-                            color: installCancelBtn.hovered ? appColors.sidebar : "transparent"
-                        }
+                        background: Item {}
                     }
 
                     Button {
                         id: installConfirmBtn
-                        implicitHeight: 42
-                        padding: 12
-                        leftPadding: 18
-                        rightPadding: 18
-                        text: themeInstaller.installing ? "Installing…" : "Install"
+                        implicitHeight: 44
+                        leftPadding: 22
+                        rightPadding: 22
                         enabled: {
                             if (themeInstaller.installing)
                                 return false
@@ -2360,28 +2502,333 @@ Kirigami.ApplicationWindow {
 
                         contentItem: RowLayout {
                             spacing: 8
-                            Kirigami.Icon {
+                            BusyIndicator {
                                 Layout.preferredWidth: 14
                                 Layout.preferredHeight: 14
+                                visible: themeInstaller.installing
+                                running: visible
+                            }
+                            Kirigami.Icon {
+                                Layout.preferredWidth: 13
+                                Layout.preferredHeight: 13
                                 visible: !themeInstaller.installing
                                 source: "download"
-                                color: appColors.primaryFg
+                                color: "#FFFFFF"
                             }
                             Label {
-                                text: installConfirmBtn.text
+                                text: themeInstaller.installing ? "Installing…" : "Install"
                                 font.family: root.headingFont
                                 font.weight: Font.Bold
-                                font.pixelSize: 13
-                                color: appColors.primaryFg
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
+                                font.pixelSize: 14
+                                color: "#FFFFFF"
                             }
                         }
-                        background: Rectangle {
-                            radius: appColors.radiusCard
-                            color: !installConfirmBtn.enabled ? appColors.disabledPrimary
-                                 : (installConfirmBtn.hovered ? appColors.accentHover : appColors.primary)
+                        background: PrimaryChrome { control: installConfirmBtn }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Remove theme dialog ─────────────────────────────────────────────
+    Dialog {
+        id: removeConfirmDialog
+        title: ""
+        modal: true
+        anchors.centerIn: parent
+        standardButtons: Dialog.NoButton
+        width: Math.min(root.width * 0.4, 580)
+        padding: 28
+
+        background: Rectangle {
+            radius: appColors.radiusModal
+            color: appColors.sheetBg
+            border.width: 1
+            border.color: appColors.sheetBorder
+        }
+
+        Overlay.modal: Rectangle {
+            color: appColors.isDark ? Qt.rgba(0.0235, 0.0275, 0.0431, .65) : Qt.rgba(0.0784, 0.0627, 0.1569, .4)
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 20
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 14
+
+                Rectangle {
+                    Layout.preferredWidth: 44
+                    Layout.preferredHeight: 44
+                    radius: 11
+                    color: Qt.rgba(1, 1, 1, .08)
+                    clip: true
+                    Image {
+                        anchors.fill: parent
+                        source: root.themeThumbUrl(root.currentTheme)
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        visible: source.toString().length > 0
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Label {
+                        Layout.fillWidth: true
+                        text: "Remove " + (currentTheme.name || currentTheme.id || "this theme") + "?"
+                        wrapMode: Text.WordWrap
+                        font.family: root.headingFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 21
+                        color: appColors.sheetTextPrimary
+                    }
+                    Label {
+                        text: (currentTheme.hasVariants
+                                ? (currentTheme.variants.length + " variants · ")
+                                : "")
+                              + (root.themeScopeLabel(currentTheme) === "System" ? "system install" : "installed by user")
+                        font.family: root.bodyFont
+                        font.pixelSize: 13
+                        color: appColors.sheetTextTertiary
+                    }
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: "The theme files will be deleted from disk. This cannot be undone — you will need to install it again to get it back."
+                font.family: root.bodyFont
+                font.pixelSize: 14
+                lineHeight: 1.6
+                color: Qt.rgba(1, 1, 1, .66)
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                radius: appColors.radiusButton
+                color: Qt.rgba(1, 1, 1, .05)
+                implicitHeight: removeInfoCol.implicitHeight + 26
+
+                ColumnLayout {
+                    id: removeInfoCol
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 13
+                    spacing: 5
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WrapAnywhere
+                        textFormat: Text.StyledText
+                        text: "Path <span style=\"color:#fff\">" + (currentTheme.path || "") + "</span>"
+                        font.family: root.bodyFont
+                        font.pixelSize: 13
+                        color: Qt.rgba(1, 1, 1, .56)
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: currentTheme.readOnly === true
+                              ? "Read-only path — cannot be removed here."
+                              : "Writable by the app — no admin password needed."
+                        font.family: root.bodyFont
+                        font.pixelSize: 13
+                        color: Qt.rgba(1, 1, 1, .56)
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+                Item { Layout.fillWidth: true }
+
+                Button {
+                    id: removeCancelBtn
+                    implicitHeight: 44
+                    leftPadding: 20
+                    rightPadding: 20
+                    onClicked: removeConfirmDialog.close()
+                    contentItem: Label {
+                        text: "Cancel"
+                        font.family: root.headingFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 14
+                        color: appColors.sheetTextSecondary
+                    }
+                    background: Item {}
+                }
+
+                Button {
+                    id: removeConfirmBtn
+                    implicitHeight: 44
+                    leftPadding: 24
+                    rightPadding: 24
+                    enabled: root.currentTheme.readOnly !== true
+                    onClicked: {
+                        removeConfirmDialog.close()
+                        root.confirmRemoveCurrentTheme()
+                    }
+                    contentItem: RowLayout {
+                        spacing: 9
+                        Kirigami.Icon {
+                            Layout.preferredWidth: 13
+                            Layout.preferredHeight: 13
+                            source: "edit-delete"
+                            color: "#FFFFFF"
                         }
+                        Label {
+                            text: "Remove theme"
+                            font.family: root.headingFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 14
+                            color: "#FFFFFF"
+                        }
+                    }
+                    background: Rectangle {
+                        radius: appColors.radiusButton
+                        color: !removeConfirmBtn.enabled ? Qt.rgba(0.851, 0.3373, 0.4157, .4)
+                             : (removeConfirmBtn.hovered ? appColors.dangerHover : appColors.dangerAccent)
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Screen 8: floating chip + exit bar over the real greeter ────────
+    // Sized to their own content (not full-screen), so clicks outside them
+    // fall straight through to the SDDM test-mode greeter underneath —
+    // no input-mask hacks, no new C++.
+    Window {
+        id: greeterChipWindow
+        visible: greeterPreview.running
+        flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        color: "transparent"
+        width: chipContent.implicitWidth + 32
+        height: chipContent.implicitHeight + 18
+        x: Math.round((Screen.width - width) / 2)
+        y: 26
+
+        Rectangle {
+            anchors.fill: parent
+            radius: height / 2
+            color: Qt.rgba(0.0549, 0.0588, 0.0824, .72)
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, .14)
+
+            RowLayout {
+                id: chipContent
+                anchors.centerIn: parent
+                spacing: 10
+
+                Rectangle {
+                    Layout.preferredWidth: 7
+                    Layout.preferredHeight: 7
+                    radius: 3.5
+                    color: "#42D68A"
+                }
+                Label {
+                    text: "Real greeter in test mode · " + (root.currentTheme.name || root.currentTheme.id || "")
+                          + (root.currentThemeHasVariants && root.currentVariant.displayName ? (" · " + root.currentVariant.displayName) : "")
+                    font.family: root.bodyFont
+                    font.pixelSize: 13
+                    color: "#ECEAF3"
+                }
+            }
+        }
+    }
+
+    Window {
+        id: greeterExitBarWindow
+        visible: greeterPreview.running
+        flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        color: "transparent"
+        width: exitBarContent.implicitWidth + 34
+        height: 64
+        x: Math.round((Screen.width - width) / 2)
+        y: Screen.height - 34 - height
+
+        Rectangle {
+            anchors.fill: parent
+            radius: 16
+            color: Qt.rgba(0.0549, 0.0588, 0.0824, .74)
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, .14)
+
+            RowLayout {
+                id: exitBarContent
+                anchors.centerIn: parent
+                spacing: 18
+
+                ColumnLayout {
+                    spacing: 3
+                    Label {
+                        text: "You're looking at the real login"
+                        font.family: root.headingFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 15
+                        color: "#F2F1F7"
+                    }
+                    Label {
+                        text: "Variant Manager stays open behind it — Hyprland: Super+Q · Plasma: Alt+Tab"
+                        font.family: root.bodyFont
+                        font.pixelSize: 12
+                        color: Qt.rgba(1, 1, 1, .5)
+                    }
+                }
+
+                Rectangle {
+                    Layout.preferredWidth: 1
+                    Layout.preferredHeight: 28
+                    color: Qt.rgba(1, 1, 1, .14)
+                }
+
+                Button {
+                    id: applyFromPreviewBtn
+                    implicitHeight: 42
+                    leftPadding: 20
+                    rightPadding: 20
+                    enabled: selectedThemeIndex >= 0 && (
+                        currentThemeHasVariants
+                            ? (!currentThemeReadOnly && currentVariant.configFile !== undefined)
+                            : currentTheme.id !== undefined)
+                    onClicked: root.applyCurrentSelection()
+                    contentItem: Label {
+                        text: "Apply this variant"
+                        font.family: root.bodyFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 14
+                        color: "#F2F1F7"
+                    }
+                    background: Rectangle {
+                        radius: 11
+                        color: applyFromPreviewBtn.hovered ? Qt.rgba(1, 1, 1, .14) : Qt.rgba(1, 1, 1, .08)
+                        border.width: 1
+                        border.color: Qt.rgba(1, 1, 1, .14)
+                    }
+                }
+
+                Button {
+                    id: closePreviewFromBarBtn
+                    implicitHeight: 42
+                    leftPadding: 22
+                    rightPadding: 22
+                    onClicked: greeterPreview.stopPreview()
+                    contentItem: Label {
+                        text: "Close preview"
+                        font.family: root.bodyFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 14
+                        color: "#12131A"
+                    }
+                    background: Rectangle {
+                        radius: 11
+                        color: "#ECEAF3"
                     }
                 }
             }

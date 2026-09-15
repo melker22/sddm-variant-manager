@@ -1,0 +1,37 @@
+# CircleCI pipeline for sddm-variant-manager.
+#
+# The project's own build system is the Nix flake (flake.nix), so CI reuses
+# it verbatim instead of re-deriving a Qt6/KF6 dependency list for a generic
+# Linux image — the same package definition (nix/package.nix) that
+# `nix profile install` and the flake's `apps.default` use locally.
+version: 2.1
+
+jobs:
+  build:
+    docker:
+      - image: nixos/nix:2.24.9
+    steps:
+      - checkout
+      - run:
+          name: Enable flakes (disabled by default in the base image)
+          command: |
+            mkdir -p /etc/nix
+            echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+      - restore_cache:
+          keys:
+            - nix-store-v1-{{ checksum "flake.lock" }}
+      - run:
+          name: Build the package (nix/package.nix via flake.nix)
+          command: nix build .#default --print-build-logs
+      - save_cache:
+          key: nix-store-v1-{{ checksum "flake.lock" }}
+          paths:
+            - /nix
+      - run:
+          name: Headless install/rescan/remove smoke test (--qa-self-test)
+          command: nix run .#default -- --qa-self-test
+
+workflows:
+  build-and-test:
+    jobs:
+      - build
