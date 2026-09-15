@@ -89,6 +89,10 @@ QtObject {
     readonly property color textPrimary: isDark ? textPrimaryDark : textPrimaryLight
     readonly property color textSecondary: isDark ? textSecondaryDark : textSecondaryLight
     readonly property color textTertiary: isDark ? textTertiaryDark : textTertiaryLight
+    // Header utility icons (Rescan, System diagnostics) — deliberately more
+    // muted than primary action icons, but a touch brighter than generic
+    // secondary text per the handoff (rgba(255,255,255,.55) / #8B93A7).
+    readonly property color headerIconMuted: isDark ? Qt.rgba(1, 1, 1, .55) : "#8B93A7"
     readonly property color divider: isDark ? dividerDark : dividerLight
     readonly property color hairline: isDark ? hairlineDark : hairlineLight
     readonly property color panelShadow: isDark ? Qt.rgba(0, 0, 0, .35) : Qt.rgba(0.1176, 0.098, 0.2745, .12)
