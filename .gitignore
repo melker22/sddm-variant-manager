@@ -8,3 +8,11 @@
 /design/
 CMakeLists.txt.user
 *.autosave
+/packaging/out/
+/packaging/arch/pkg/
+/packaging/arch/src/
+/packaging/arch/*.tar.gz
+/packaging/arch/*.pkg.tar.zst
+/packaging/**/*.rpm
+/packaging/**/*.deb
+/packaging/**/*.pkg.tar.zst

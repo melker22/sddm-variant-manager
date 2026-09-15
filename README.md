@@ -32,6 +32,7 @@ Prefer the previous sidebar + card look? It's preserved as-is on the [`design/cl
   - [NixOS](#nixos)
   - [Arch Linux / Manjaro](#arch-linux--manjaro)
   - [Fedora, openSUSE, Debian / Ubuntu](#fedora-opensuse-debian--ubuntu)
+  - [Build distro packages with Docker](#build-distro-packages-with-docker)
   - [From source](#from-source-manual)
 - [Usage](#usage)
 - [Requirements](#requirements)
@@ -201,7 +202,13 @@ The GUI drop-in and declarative `theme=` can conflict — remove `/etc/sddm.conf
 
 ### Arch Linux / Manjaro
 
-There is no AUR package yet. Build from `packaging/arch/` (currently **2.4.0**):
+There is no AUR package yet. Install a locally built package (currently **2.4.0**):
+
+```bash
+sudo pacman -U packaging/out/arch/sddm-variant-manager-2.4.0-1-x86_64.pkg.tar.zst
+```
+
+Or rebuild on Arch itself:
 
 ```bash
 sudo pacman -S --needed base-devel
@@ -210,7 +217,7 @@ cd packaging/arch
 sudo pacman -U ./sddm-variant-manager-*.pkg.tar.zst
 ```
 
-Or `pamac install ./sddm-variant-manager-*.pkg.tar.zst --no-confirm`.
+Or `pamac install ./sddm-variant-manager-*.pkg.tar.zst --no-confirm`. On NixOS, use [Docker](#build-distro-packages-with-docker).
 
 This installs to `/usr/bin` and adds a `.desktop` entry. Qt 6, Kirigami, and `breeze-icons` come in via `depends`. `ffmpeg` and `git` are `optdepends` (thumbnails and experimental GitHub clone).
 
@@ -226,10 +233,32 @@ On Hyprland / other Wayland compositors, install `qt6-wayland` if the window doe
 
 ### Fedora, openSUSE, Debian / Ubuntu
 
-No COPR / OBS packages yet. Install build dependencies, then follow [From source](#from-source-manual).
+No COPR / OBS packages yet. Local packages (currently **2.4.0**) are built with [Docker](#build-distro-packages-with-docker) into `packaging/out/`.
+
+**Fedora 42**
+
+```bash
+sudo dnf install packaging/out/fedora/sddm-variant-manager-2.4.0-1.fc42.x86_64.rpm
+```
+
+For video login themes: `sudo dnf install qt6-qtmultimedia qt6-qt5compat qt6-qtsvg`
+
+**openSUSE Tumbleweed**
+
+```bash
+sudo zypper install packaging/out/opensuse/sddm-variant-manager-2.4.0-1.0.x86_64.rpm
+```
+
+**Debian 13 (trixie)** — needs Qt 6 and KF6 (Ubuntu 25.04+ may work; 24.04 LTS is often too old)
+
+```bash
+sudo apt install ./packaging/out/debian/sddm-variant-manager_2.4.0-1_amd64.deb
+```
 
 <details>
-<summary>Fedora</summary>
+<summary>Build from source on the distro instead</summary>
+
+Fedora:
 
 ```bash
 sudo dnf install cmake extra-cmake-modules ninja-build gcc-c++ \
@@ -239,12 +268,7 @@ sudo dnf install cmake extra-cmake-modules ninja-build gcc-c++ \
   breeze-icon-theme ffmpeg git sddm polkit
 ```
 
-For video login themes: `sudo dnf install qt6-qtmultimedia qt6-qt5compat qt6-qtsvg`
-
-</details>
-
-<details>
-<summary>openSUSE Tumbleweed</summary>
+openSUSE Tumbleweed:
 
 ```bash
 sudo zypper install cmake extra-cmake-modules ninja gcc-c++ \
@@ -253,23 +277,29 @@ sudo zypper install cmake extra-cmake-modules ninja gcc-c++ \
   breeze6-icons ffmpeg git sddm polkit
 ```
 
-Package names on Leap may differ; prefer Tumbleweed for Qt 6 / KF6.
-
-</details>
-
-<details>
-<summary>Debian / Ubuntu</summary>
-
-Need **Qt 6 and KF6** (Debian testing/unstable, Ubuntu 25.04+). Ubuntu 24.04 LTS is often too old.
+Debian / Ubuntu:
 
 ```bash
 sudo apt install cmake extra-cmake-modules ninja-build g++ \
   qt6-base-dev qt6-declarative-dev qt6-multimedia-dev qt6-svg-dev \
-  kirigami-dev libkf6coreaddons-dev libkf6i18n-dev libkf6archive-dev \
+  libkirigami-dev libkf6coreaddons-dev libkf6i18n-dev libkf6archive-dev \
   breeze-icon-theme ffmpeg git sddm policykit-1
 ```
 
+Then follow [From source](#from-source-manual).
+
 </details>
+
+### Build distro packages with Docker
+
+Compiles inside real Arch / Fedora 42 / Debian trixie / openSUSE Tumbleweed containers so the binaries link against those distros' libraries (not Nix store paths). Works from NixOS.
+
+```bash
+./packaging/docker/build-all.sh          # all four
+./packaging/docker/build-all.sh fedora   # one of: arch fedora debian opensuse
+```
+
+Artifacts land in `packaging/out/<distro>/`. First run pulls images and Qt/KF6 build deps (several hundred MB per distro). Later runs reuse the cached images.
 
 ### From source (manual)
 

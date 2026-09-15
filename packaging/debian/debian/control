@@ -1,0 +1,49 @@
+Source: sddm-variant-manager
+Section: kde
+Priority: optional
+Maintainer: Melker Halberd Pereira Alves <melker168@gmail.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ cmake,
+ extra-cmake-modules,
+ ninja-build,
+ g++,
+ pkg-config,
+ qt6-base-dev,
+ qt6-declarative-dev,
+ qt6-multimedia-dev,
+ qt6-svg-dev,
+ qt6-wayland-dev,
+ libkirigami-dev,
+ libkf6coreaddons-dev,
+ libkf6i18n-dev,
+ libkf6archive-dev
+Standards-Version: 4.7.2
+Homepage: https://github.com/melker22/sddm-variant-manager
+Rules-Requires-Root: no
+
+Package: sddm-variant-manager
+Architecture: any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ qml6-module-qtquick,
+ qml6-module-qtquick-controls,
+ qml6-module-qtquick-layouts,
+ qml6-module-qtquick-templates,
+ qml6-module-qtquick-window,
+ qml6-module-qtqml-workerscript,
+ qml6-module-qtmultimedia,
+ qml6-module-org-kde-kirigami,
+ breeze-icon-theme,
+ sddm,
+ policykit-1
+Recommends:
+ ffmpeg,
+ git,
+ qt6-wayland,
+ qml6-module-qt5compat-graphicaleffects
+Description: Browse, preview and apply SDDM login theme variants
+ SDDM Variant Manager lists installed SDDM themes, supports multi-variant
+ collections, installs themes from archives or public GitHub repositories
+ without executing install.sh, and runs the real greeter in test mode.

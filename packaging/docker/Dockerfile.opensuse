@@ -1,0 +1,12 @@
+FROM opensuse/tumbleweed
+
+RUN zypper --non-interactive refresh && \
+    zypper --non-interactive install --no-recommends \
+      rpm-build \
+      cmake extra-cmake-modules ninja gcc-c++ pkg-config \
+      qt6-base-devel qt6-declarative-devel qt6-multimedia-devel \
+      qt6-svg-devel qt6-wayland-devel \
+      kf6-kirigami-devel kf6-kcoreaddons-devel kf6-ki18n-devel kf6-karchive-devel && \
+    zypper clean --all
+
+WORKDIR /build
