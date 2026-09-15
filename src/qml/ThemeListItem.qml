@@ -4,7 +4,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
 
 ItemDelegate {
     id: control
@@ -28,53 +27,40 @@ ItemDelegate {
     hoverEnabled: true
     leftPadding: 10
     rightPadding: 10
-    topPadding: 8
-    bottomPadding: 8
+    topPadding: 9
+    bottomPadding: 9
 
     readonly property string badgeText: {
         if (control.readOnly)
             return "RO"
         if (control.scopeLabel === "System")
-            return "SYSTEM"
+            return "SYS"
         if (control.scopeLabel === "User")
             return "USER"
         return control.scopeLabel.toUpperCase()
     }
 
-    background: Item {
-        Rectangle {
-            anchors.fill: parent
-            radius: 10
-            color: {
-                if (control.selected)
-                    return Qt.rgba(control.colors.primary.r, control.colors.primary.g, control.colors.primary.b,
-                                   control.colors.isDark ? 0.20 : 0.10)
-                if (control.hovered)
-                    return control.colors.isDark ? Qt.rgba(1, 1, 1, 0.05)
-                                                : Qt.rgba(1, 1, 1, 0.60)
-                return "transparent"
-            }
-            Behavior on color { ColorAnimation { duration: 120 } }
+    background: Rectangle {
+        radius: 11
+        color: {
+            if (control.selected)
+                return control.colors.rowSelected
+            if (control.hovered)
+                return Qt.rgba(control.colors.rowHover.r, control.colors.rowHover.g,
+                                control.colors.rowHover.b, control.colors.rowHover.a * 0.5)
+            return "transparent"
         }
-        Rectangle {
-            visible: control.selected
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            width: 3
-            radius: 2
-            color: control.colors.primary
-        }
+        Behavior on color { ColorAnimation { duration: 120 } }
     }
 
     contentItem: RowLayout {
-        spacing: 12
+        spacing: 11
 
         Rectangle {
-            Layout.preferredWidth: 32
-            Layout.preferredHeight: 32
-            radius: 8
-            color: control.colors.surfaceVariant
+            Layout.preferredWidth: 34
+            Layout.preferredHeight: 34
+            radius: 9
+            color: control.colors.fieldBg
             clip: true
 
             Image {
@@ -87,15 +73,6 @@ ItemDelegate {
                 mipmap: true
                 visible: control.thumbnailSource.length > 0 && status === Image.Ready
             }
-
-            Kirigami.Icon {
-                anchors.centerIn: parent
-                width: 16
-                height: 16
-                source: "preferences-desktop-theme"
-                color: control.colors.textMuted
-                visible: !thumbImage.visible
-            }
         }
 
         ColumnLayout {
@@ -107,8 +84,8 @@ ItemDelegate {
                 text: control.themeName
                 font.family: control.headingFont
                 font.weight: Font.Bold
-                font.pixelSize: 13
-                color: control.colors.surfaceFg
+                font.pixelSize: 14
+                color: control.colors.textPrimary
                 elide: Text.ElideRight
             }
 
@@ -116,16 +93,18 @@ ItemDelegate {
                 Layout.fillWidth: true
                 text: control.themeSubtitle
                 font.family: control.bodyFont
-                font.pixelSize: 11
-                color: control.colors.textMuted
+                font.pixelSize: 12
+                color: control.colors.textSecondary
                 elide: Text.ElideRight
             }
         }
 
         Rectangle {
-            radius: 6
-            color: control.readOnly ? control.colors.badgeReadonlyBg
-                 : (control.scopeLabel === "System" ? control.colors.badgeSystemBg : control.colors.badgeUserBg)
+            radius: 5
+            color: "transparent"
+            border.width: 1
+            border.color: control.readOnly ? control.colors.badgeReadonlyBorder
+                        : (control.scopeLabel === "User" ? control.colors.badgeUserBorder : control.colors.badgeBorder)
             implicitHeight: badgeLbl.implicitHeight + 6
             implicitWidth: badgeLbl.implicitWidth + 12
 
@@ -135,9 +114,10 @@ ItemDelegate {
                 text: control.badgeText
                 font.family: control.headingFont
                 font.weight: Font.Bold
-                font.pixelSize: 9
+                font.pixelSize: 10
+                font.letterSpacing: 0.7
                 color: control.readOnly ? control.colors.badgeReadonlyText
-                     : (control.scopeLabel === "System" ? control.colors.badgeSystemText : control.colors.badgeUserText)
+                     : (control.scopeLabel === "User" ? control.colors.badgeUserText : control.colors.badgeText)
             }
         }
     }

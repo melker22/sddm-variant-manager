@@ -4,87 +4,137 @@
 import QtQuick
 
 /**
- * Tokens from the SDDM Variant Manager redesign (light + dark screens).
- * Product look wins over Qt / Kirigami / OS chrome.
+ * Tokens for the "Palco" redesign (design/Claude Design/design_handoff_direction_a_palco).
+ * The theme preview fills the window; every control lives on floating glass
+ * panels above it, so most tokens are split explicitly dark/light.
  */
 QtObject {
     id: scheme
 
-    readonly property bool isDark: {
-        if (Qt.styleHints.colorScheme === Qt.ColorScheme.Dark)
-            return true
-        if (Qt.styleHints.colorScheme === Qt.ColorScheme.Light)
-            return false
-        return false
-    }
+    readonly property bool isDark: Qt.styleHints.colorScheme === Qt.ColorScheme.Dark
 
+    // ── Accent (purple) ──────────────────────────────────────────
     readonly property color primary: "#8B67F2"
+    readonly property color primaryHover: "#7B55EE"
+    readonly property color primaryPressed: "#6C46E0"
     readonly property color primaryFg: "#FFFFFF"
-    readonly property color primaryContainer: isDark ? "#2A2145" : "#EDE8FD"
-    readonly property color primaryContainerFg: isDark ? "#A78BFA" : "#6B4ED8"
-    readonly property color accentDark: isDark ? "#A78BFA" : "#6B4ED8"
-    readonly property color accentHover: isDark ? "#A78BFA" : "#7455d4"
-    readonly property color disabledPrimary: isDark ? "#5C4B8A" : "#C4B5F0"
+    readonly property color primaryTint: "#ECE6FD"
+    readonly property color primaryTextOnGlass: isDark ? "#B49BFA" : "#7B55EE"
+    readonly property color primaryContainer: isDark ? Qt.rgba(0.5451, 0.4039, 0.949, .12) : Qt.rgba(0.5451, 0.4039, 0.949, .10)
+    readonly property color primaryContainerBorder: isDark ? Qt.rgba(0.5451, 0.4039, 0.949, .28) : Qt.rgba(0.5451, 0.4039, 0.949, .22)
+    readonly property color primaryContainerText: isDark ? "#CBB9FB" : "#6B4ED8"
+    readonly property color disabledPrimary: Qt.rgba(0.5451, 0.4039, 0.949, .4)
+    readonly property color disabledPrimaryFg: Qt.rgba(1, 1, 1, .6)
 
-    readonly property color secondary: isDark ? "#8B8FA3" : "#64748B"
-    readonly property color secondaryFg: "#FFFFFF"
-    readonly property color secondaryContainer: isDark ? "#20232E" : "#E2E8F0"
-    readonly property color secondaryContainerFg: isDark ? "#EDEBF7" : "#1A1626"
+    // ── Semantic ─────────────────────────────────────────────────
+    readonly property color successDot: isDark ? "#42D68A" : "#2FB26C"
+    readonly property color successText: isDark ? "#8FE7BB" : "#2F7D57"
+    readonly property color successBg: isDark ? Qt.rgba(0.1843, 0.698, 0.4235, .16) : "#E6F6EE"
+    readonly property color successBorder: isDark ? Qt.rgba(0.1843, 0.698, 0.4235, .34) : "#C6E8D6"
 
-    readonly property color tertiary: isDark ? "#F0A8C8" : "#C45A86"
-    readonly property color tertiaryFg: "#FFFFFF"
-    readonly property color tertiaryContainer: isDark ? "#6B3A52" : "#FFD8E8"
-    readonly property color tertiaryContainerFg: isDark ? "#FFE8F1" : "#3A1528"
+    readonly property color warningAccent: "#F0B446"
+    readonly property color warningText: "#F7DDA4"
+    readonly property color warningBg: Qt.rgba(0.8392, 0.5961, 0.1569, .18)
+    readonly property color warningBorder: Qt.rgba(0.9412, 0.7059, 0.2745, .38)
+    readonly property color warningDiscFg: "#2A1C05"
 
-    readonly property color background: isDark ? "#12141A" : "#F4F6FB"
-    readonly property color surface: isDark ? "#1A1D26" : "#FEFDFE"
-    readonly property color surface2: isDark ? "#20232E" : "#FFFFFF"
-    readonly property color surfaceVariant: isDark ? "#20232E" : "#E2E8F0"
-    readonly property color outline: isDark ? "#2B2E3B" : "#E2E8F0"
-    readonly property color surfaceFg: isDark ? "#EDEBF7" : "#1A1626"
-    readonly property color surfaceVariantFg: isDark ? "#8B8FA3" : "#64748B"
-    readonly property color textMuted: isDark ? "#8B8FA3" : "#94A3B8"
+    readonly property color dangerAccent: isDark ? "#D9566A" : "#CF3F54"
+    readonly property color dangerHover: isDark ? "#C8485C" : "#B93049"
+    readonly property color dangerBg: Qt.rgba(0.3451, 0.102, 0.1412, .55)
+    readonly property color dangerBorder: Qt.rgba(0.851, 0.3373, 0.4157, .45)
+    readonly property color dangerText: "#FFD9DE"
+    readonly property color dangerBody: "#F0BCC4"
+    readonly property color dangerToastBg: Qt.rgba(0.1882, 0.0784, 0.102, .95)
+    readonly property color dangerToastText: "#F7D3D9"
 
-    readonly property color sidebar: isDark ? "#1B1930" : "#EEE9FB"
-    readonly property color cardBorder: isDark ? "#2B2E3B" : "#E2E8F0"
-    readonly property color accentGlow: isDark ? "#8B67F240" : "#8B67F222"
+    readonly property color successToastBg: Qt.rgba(0.0784, 0.1725, 0.1294, .95)
+    readonly property color successToastText: "#D5F5E4"
 
-    readonly property color fieldBg: isDark ? "#1A1D26" : "#FFFFFF"
-    readonly property color fieldBorder: isDark ? "#2B2E3B" : "#E2E8F0"
-    readonly property color fieldBorderFocus: primary
-    readonly property color fieldPlaceholder: isDark ? "#8B8FA3" : "#94A3B8"
-    readonly property color fieldSelection: isDark ? "#4A3A7A" : "#D4C8FA"
-    readonly property color checkboxBorder: isDark ? "#8B8FA3" : "#94A3B8"
-    readonly property color overlayScrim: isDark ? "#00000099" : "#00000055"
+    readonly property color betaBg: isDark ? Qt.rgba(0.9412, 0.7059, 0.2745, .16) : "#FBF1DD"
+    readonly property color betaBorder: Qt.rgba(0.9412, 0.7059, 0.2745, .4)
+    readonly property color betaText: "#F0B446"
 
-    readonly property color danger: isDark ? "#F0827E" : "#C23B3B"
-    readonly property color dangerContainer: isDark ? "#2E1717" : "#FDF0F0"
-    readonly property color dangerBorder: isDark ? "#4A2222" : "#F5D3D3"
-    readonly property color warning: isDark ? "#E5A75B" : "#B4600F"
-    readonly property color warningContainer: isDark ? "#2E2313" : "#FDF0E4"
-    readonly property color warningFg: isDark ? "#C9A876" : "#B4600F"
+    // ── Surfaces — dark mode ─────────────────────────────────────
+    readonly property color panelGlassDark: Qt.rgba(0.0549, 0.0588, 0.0824, .62)
+    readonly property color barGlassDark: Qt.rgba(0.0549, 0.0588, 0.0824, .68)
+    readonly property color panelBorderDark: Qt.rgba(1, 1, 1, .10)
+    readonly property color barBorderDark: Qt.rgba(1, 1, 1, .12)
+    readonly property color textPrimaryDark: "#F2F1F7"
+    readonly property color textSecondaryDark: Qt.rgba(1, 1, 1, .44)
+    readonly property color textTertiaryDark: Qt.rgba(1, 1, 1, .40)
+    readonly property color dividerDark: Qt.rgba(1, 1, 1, .14)
+    readonly property color hairlineDark: Qt.rgba(1, 1, 1, .08)
+    readonly property color scrimDark: Qt.rgba(0.0235, 0.0275, 0.0431, .65)
 
-    readonly property color badgeSystemBg: isDark ? "#16261F" : "#E4F8EC"
-    readonly property color badgeSystemText: isDark ? "#6FE3A8" : "#1F7A4D"
-    readonly property color badgeUserBg: isDark ? "#2A2145" : "#F3EEFF"
-    readonly property color badgeUserText: isDark ? "#A78BFA" : "#6B4ED8"
-    readonly property color badgeReadonlyBg: isDark ? "#2E2313" : "#FDF0E4"
-    readonly property color badgeReadonlyText: isDark ? "#E5A75B" : "#B4600F"
-    readonly property color badgeBetaBg: isDark ? "#332711" : "#FBF1DD"
-    readonly property color badgeBetaText: isDark ? "#E5C583" : "#9A6B1F"
-    readonly property color badgeBetaBorder: isDark ? "#4A3A1C" : "#F0DBA8"
-    readonly property color badgeSuccessBg: isDark ? "#16261F" : "#EFFAF3"
-    readonly property color badgeSuccessText: isDark ? "#6FE3A8" : "#1F7A4D"
-    readonly property color badgeSuccessBorder: isDark ? "#25543C" : "#BEEBD0"
+    // ── Surfaces — light mode ─────────────────────────────────────
+    readonly property color panelGlassLight: Qt.rgba(1, 1, 1, .80)
+    readonly property color barGlassLight: Qt.rgba(1, 1, 1, .86)
+    readonly property color panelBorderLight: Qt.rgba(1, 1, 1, .90)
+    readonly property color barBorderLight: Qt.rgba(1, 1, 1, .95)
+    readonly property color textPrimaryLight: "#1A1A22"
+    readonly property color textSecondaryLight: "#5C5C6B"
+    readonly property color textTertiaryLight: "#8A8FA6"
+    readonly property color dividerLight: Qt.rgba(0.1176, 0.098, 0.2745, .12)
+    readonly property color hairlineLight: Qt.rgba(0.1176, 0.098, 0.2745, .08)
+    readonly property color scrimLight: Qt.rgba(0.0784, 0.0627, 0.1569, .30)
 
+    // ── Resolved (mode-aware) ─────────────────────────────────────
+    readonly property color panelGlass: isDark ? panelGlassDark : panelGlassLight
+    readonly property color barGlass: isDark ? barGlassDark : barGlassLight
+    readonly property color panelBorder: isDark ? panelBorderDark : panelBorderLight
+    readonly property color barBorder: isDark ? barBorderDark : barBorderLight
+    readonly property color textPrimary: isDark ? textPrimaryDark : textPrimaryLight
+    readonly property color textSecondary: isDark ? textSecondaryDark : textSecondaryLight
+    readonly property color textTertiary: isDark ? textTertiaryDark : textTertiaryLight
+    readonly property color divider: isDark ? dividerDark : dividerLight
+    readonly property color hairline: isDark ? hairlineDark : hairlineLight
+    readonly property color panelShadow: isDark ? Qt.rgba(0, 0, 0, .35) : Qt.rgba(0.1176, 0.098, 0.2745, .12)
+    readonly property color barShadow: isDark ? Qt.rgba(0, 0, 0, .4) : Qt.rgba(0.1176, 0.098, 0.2745, .14)
+
+    readonly property color fieldBg: isDark ? Qt.rgba(1, 1, 1, .07) : Qt.rgba(0.1176, 0.098, 0.2745, .06)
+    readonly property color fieldBorder: isDark ? Qt.rgba(1, 1, 1, .12) : Qt.rgba(0.1176, 0.098, 0.2745, .10)
+    readonly property color fieldBorderFocus: Qt.rgba(0.5451, 0.4039, 0.949, .55)
+    readonly property color fieldPlaceholder: isDark ? Qt.rgba(1, 1, 1, .52) : "#9A9AB0"
+
+    readonly property color rowHover: isDark ? Qt.rgba(1, 1, 1, .05) : Qt.rgba(0.1176, 0.098, 0.2745, .035)
+    readonly property color rowSelected: isDark ? Qt.rgba(1, 1, 1, .10) : Qt.rgba(0.1176, 0.098, 0.2745, .07)
+
+    readonly property color badgeBg: "transparent"
+    readonly property color badgeBorder: isDark ? Qt.rgba(1, 1, 1, .16) : "#DCDAE6"
+    readonly property color badgeText: isDark ? Qt.rgba(1, 1, 1, .42) : "#8A8FA6"
+    readonly property color badgeUserBorder: Qt.rgba(0.5451, 0.4039, 0.949, .35)
+    readonly property color badgeUserText: isDark ? "#B49BFA" : "#7B55EE"
+    readonly property color badgeReadonlyBorder: Qt.rgba(0.9412, 0.7059, 0.2745, .35)
+    readonly property color badgeReadonlyText: "#F0B446"
+
+    // ── Sheets / modals (always dark glass, per handoff) ──────────
+    readonly property color sheetBg: Qt.rgba(0.0706, 0.0745, 0.102, .95)
+    readonly property color sheetBorder: Qt.rgba(1, 1, 1, .12)
+    readonly property color sheetShadow: Qt.rgba(0, 0, 0, .5)
+    readonly property color sheetTextPrimary: "#F2F1F7"
+    readonly property color sheetTextSecondary: Qt.rgba(1, 1, 1, .5)
+    readonly property color sheetTextTertiary: Qt.rgba(1, 1, 1, .42)
+    readonly property color sheetFieldBg: Qt.rgba(1, 1, 1, .06)
+    readonly property color sheetFieldBorder: Qt.rgba(1, 1, 1, .12)
+    readonly property color sheetTrackBg: Qt.rgba(1, 1, 1, .06)
+    readonly property color sheetTabActiveBg: "#ECEAF3"
+    readonly property color sheetTabActiveText: "#12131A"
+    readonly property color sheetHairline: Qt.rgba(1, 1, 1, .09)
+
+    // ── Fonts / radii / spacing ────────────────────────────────────
     readonly property string fontHeading: "Sora"
     readonly property string fontBody: "Manrope"
-    readonly property int radiusCard: 10
-    readonly property int radiusModal: 16
-    readonly property int radiusControl: 8
 
-    readonly property color shadowCard: isDark ? "#59000000" : "#0F000000"
-    readonly property color shadowCardHover: isDark ? "#478B67F2" : "#268B67F2"
-    readonly property int shadowY: 2
-    readonly property int shadowYHover: 4
+    readonly property int radiusPanel: 16
+    readonly property int radiusModal: 18
+    readonly property int radiusButton: 11
+    readonly property int radiusVariantCard: 10
+    readonly property int radiusThumb: 9
+    readonly property int radiusChip: 999
+
+    readonly property int marginOuter: 22
+    readonly property int railWidth: 286
+    readonly property int stageInset: 330 // 22 + railWidth + 22
+
+    readonly property int blurRadius: 22
 }
