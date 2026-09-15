@@ -617,6 +617,39 @@ Kirigami.ApplicationWindow {
         Behavior on color { ColorAnimation { duration: 120 } }
     }
 
+    // Same look as GlassSecondaryChrome, but switches to a solid primary
+    // fill when `emphasize` is true (e.g. the rail's Install button when the
+    // library is empty) — one Item so hover/down bindings stay live,
+    // avoiding the Component-id-as-background trap that silently drops
+    // reactivity (background: someComponentId does not instantiate it).
+    component AdaptiveChrome: Rectangle {
+        id: adaptiveChrome
+        property Item control
+        property bool emphasize: false
+        radius: appColors.radiusButton
+        color: {
+            if (emphasize) {
+                if (!control || !control.enabled)
+                    return appColors.disabledPrimary
+                if (control.down)
+                    return appColors.primaryPressed
+                if (control.hovered)
+                    return appColors.primaryHover
+                return appColors.primary
+            }
+            if (!control)
+                return appColors.isDark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0.12, 0.10, 0.27, 0.05)
+            if (control.down)
+                return appColors.isDark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0.12, 0.10, 0.27, 0.09)
+            if (control.hovered)
+                return appColors.isDark ? Qt.rgba(1, 1, 1, 0.11) : Qt.rgba(0.12, 0.10, 0.27, 0.07)
+            return appColors.isDark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0.12, 0.10, 0.27, 0.05)
+        }
+        border.width: emphasize ? 0 : 1
+        border.color: appColors.isDark ? Qt.rgba(1, 1, 1, 0.14) : "#E4E2EE"
+        Behavior on color { ColorAnimation { duration: 120 } }
+    }
+
     component AppCheckIndicator: Rectangle {
         property Item control
         property bool onGlass: true
@@ -1142,7 +1175,6 @@ Kirigami.ApplicationWindow {
                 anchors.leftMargin: appColors.marginOuter
                 anchors.bottomMargin: root.stageBottomReserve
                 width: appColors.railWidth
-                visible: themeScanner.themeCount > 0
                 backdropSource: stageBackdrop
                 cornerRadius: appColors.radiusPanel
                 blurAmount: appColors.blurRadius
@@ -1152,6 +1184,10 @@ Kirigami.ApplicationWindow {
 
                 Behavior on anchors.bottomMargin { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
+                // The panel itself always stays up (per the empty-library
+                // design: "LIBRARY · 0" + empty message + emphasized Install
+                // button live inside it) — only the middle content and the
+                // Install button's emphasis switch on themeCount.
                 ColumnLayout {
                     anchors.fill: parent
                     spacing: 0
@@ -1192,6 +1228,7 @@ Kirigami.ApplicationWindow {
                         id: themeListView
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        visible: themeScanner.themeCount > 0
                         clip: true
                         spacing: 2
                         leftMargin: 6
@@ -1216,6 +1253,37 @@ Kirigami.ApplicationWindow {
                             selected: root.selectedThemeIndex === modelData
                             onClicked: root.selectedThemeIndex = modelData
                         }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.leftMargin: 14
+                        Layout.rightMargin: 14
+                        spacing: 8
+                        visible: themeScanner.themeCount === 0
+
+                        Item { Layout.fillHeight: true }
+
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            text: "No themes found"
+                            font.family: root.bodyFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 14
+                            color: Qt.rgba(1, 1, 1, .62)
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            text: "Nothing in the default SDDM theme directories yet."
+                            font.family: root.bodyFont
+                            font.pixelSize: 12
+                            color: Qt.rgba(1, 1, 1, .4)
+                        }
+
+                        Item { Layout.fillHeight: true }
                     }
 
                     Button {
@@ -1244,52 +1312,11 @@ Kirigami.ApplicationWindow {
                             }
                             Item { Layout.fillWidth: true }
                         }
-                        background: themeScanner.themeCount === 0
-                            ? primaryInstallChrome
-                            : secondaryInstallChrome
-
-                        Component {
-                            id: primaryInstallChrome
-                            PrimaryChrome { control: installPrimaryBtn }
-                        }
-                        Component {
-                            id: secondaryInstallChrome
-                            GlassSecondaryChrome { control: installPrimaryBtn }
+                        background: AdaptiveChrome {
+                            control: installPrimaryBtn
+                            emphasize: themeScanner.themeCount === 0
                         }
                     }
-                }
-
-                ColumnLayout {
-                    anchors.top: parent.top
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    anchors.margins: 14
-                    anchors.topMargin: 44
-                    spacing: 8
-                    visible: themeScanner.themeCount === 0
-
-                    Item { Layout.fillHeight: true }
-
-                    Label {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: "No themes found"
-                        font.family: root.bodyFont
-                        font.weight: Font.Bold
-                        font.pixelSize: 14
-                        color: Qt.rgba(1, 1, 1, .62)
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: "Nothing in the default SDDM theme directories yet."
-                        font.family: root.bodyFont
-                        font.pixelSize: 12
-                        color: Qt.rgba(1, 1, 1, .4)
-                    }
-
-                    Item { Layout.fillHeight: true }
                 }
             }
 
@@ -1723,7 +1750,7 @@ Kirigami.ApplicationWindow {
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
-                        background: Item {}
+                        background: GlassIconButton { control: overflowBtn }
 
                         Menu {
                             id: overflowMenu
