@@ -1193,7 +1193,7 @@ Kirigami.ApplicationWindow {
                         contentItem: Kirigami.Icon {
                             isMask: true
                             source: "view-refresh"
-                            color: appColors.textSecondary
+                            color: appColors.headerIconMuted
                         }
                         background: GlassIconButton { control: refreshBtn }
                     }
@@ -1209,7 +1209,7 @@ Kirigami.ApplicationWindow {
                         contentItem: Kirigami.Icon {
                             isMask: true
                             source: "configure"
-                            color: appColors.textSecondary
+                            color: appColors.headerIconMuted
                         }
                         background: GlassIconButton { control: settingsBtn }
                     }
