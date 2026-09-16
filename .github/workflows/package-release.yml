@@ -1,7 +1,9 @@
 # Build distro packages inside real Arch/Fedora/Debian/openSUSE
 # containers and attach them to the GitHub Release for this tag.
 #
-# Uses the default GITHUB_TOKEN (contents: write). No extra PAT.
+# Uses the default GITHUB_TOKEN (contents: write). CircleCI does not
+# provide an equivalent token, so packaging lives here instead of
+# .circleci/config.yml.
 name: Package release
 
 on:
