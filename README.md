@@ -2,6 +2,7 @@
 
 [![License: GPL-3.0](https://img.shields.io/github/license/melker22/sddm-variant-manager?color=8B67F2)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/melker22/sddm-variant-manager?color=8B67F2)](https://github.com/melker22/sddm-variant-manager/releases)
+[![CI](https://github.com/melker22/sddm-variant-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/melker22/sddm-variant-manager/actions/workflows/ci.yml)
 [![Nix flake](https://img.shields.io/badge/Nix-flake-informational?logo=nixos)](https://github.com/melker22/sddm-variant-manager#nixos)
 [![Qt 6](https://img.shields.io/badge/Qt-6-41CD52?logo=qt)](https://www.qt.io/)
 
@@ -445,6 +446,8 @@ Self-test (folder install, remove, `install.sh` parser fixtures, archive install
 sddm-variant-manager --qa-self-test
 # or: ./build/Desktop_Nix_Qt6-Debug/sddm-variant-manager --qa-self-test
 ```
+
+**CI** — GitHub Actions (free on this public repo) builds the Nix package and runs `--qa-self-test` on every PR and push to `main`. Pushing a `v*` tag also builds the distro packages and attaches them to the GitHub Release.
 
 ## License
 
