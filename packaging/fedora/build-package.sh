@@ -5,11 +5,11 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 VERSION="$(sed -n 's/^Version:[[:space:]]*//p' "$HERE/sddm-variant-manager.spec" | head -1)"
+ROOT="$(cd "$HERE/../.." && pwd)"
 if [[ -z "${TARBALL:-}" ]]; then
-  ROOT="$(cd "$HERE/../.." && pwd)"
   TARBALL="$ROOT/packaging/out/sddm-variant-manager-${VERSION}.tar.gz"
 fi
-OUT="${OUT:-${ROOT:-$HERE}/../out/fedora}"
+OUT="${OUT:-$ROOT/../out/fedora}"
 
 if ! command -v rpmbuild >/dev/null; then
   echo "rpmbuild not found. Install rpm-build on Fedora, or run via packaging/docker/build-all.sh" >&2

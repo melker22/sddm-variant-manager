@@ -5,11 +5,11 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 VERSION="$(sed -n 's/^sddm-variant-manager (\([^)]*\)).*/\1/p' "$HERE/debian/changelog" | head -1 | cut -d- -f1)"
+ROOT="$(cd "$HERE/../.." && pwd)"
 if [[ -z "${TARBALL:-}" ]]; then
-  ROOT="$(cd "$HERE/../.." && pwd)"
   TARBALL="$ROOT/packaging/out/sddm-variant-manager-${VERSION}.tar.gz"
 fi
-OUT="${OUT:-${ROOT:-$HERE}/../out/debian}"
+OUT="${OUT:-$ROOT/../out/debian}"
 
 if ! command -v dpkg-buildpackage >/dev/null; then
   echo "dpkg-buildpackage not found. Install dpkg-dev, or run via packaging/docker/build-all.sh" >&2
