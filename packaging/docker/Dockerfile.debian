@@ -1,0 +1,26 @@
+FROM debian:trixie
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      ca-certificates \
+      build-essential \
+      debhelper \
+      dpkg-dev \
+      cmake \
+      extra-cmake-modules \
+      ninja-build \
+      pkg-config \
+      qt6-base-dev \
+      qt6-declarative-dev \
+      qt6-multimedia-dev \
+      qt6-svg-dev \
+      qt6-wayland-dev \
+      libkirigami-dev \
+      libkf6coreaddons-dev \
+      libkf6i18n-dev \
+      libkf6archive-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build

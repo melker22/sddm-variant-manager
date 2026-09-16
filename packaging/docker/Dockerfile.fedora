@@ -1,0 +1,12 @@
+FROM fedora:42
+
+RUN dnf -y upgrade && \
+    dnf -y install \
+      rpm-build rpmdevtools \
+      cmake extra-cmake-modules ninja-build gcc-c++ pkgconf-pkg-config \
+      qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel \
+      qt6-qtsvg-devel qt6-qtwayland-devel \
+      kf6-kirigami-devel kf6-kcoreaddons-devel kf6-ki18n-devel kf6-karchive-devel && \
+    dnf clean all
+
+WORKDIR /build

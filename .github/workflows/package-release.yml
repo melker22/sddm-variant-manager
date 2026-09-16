@@ -1,0 +1,96 @@
+# Build distro packages inside real Arch/Fedora/Debian/openSUSE
+# containers and attach them to the GitHub Release for this tag.
+#
+# Split into two jobs on purpose: `build` runs the Docker-based
+# packaging scripts (pulls third-party base images, installs each
+# distro's package toolchain, compiles the app) with no repo-write
+# permission at all, and hands its output to `publish` as a plain
+# workflow artifact. `publish` does nothing but verify the version and
+# call `gh release upload` — only *that* job gets `contents: write`.
+# This keeps the GITHUB_TOKEN out of reach of the much larger,
+# less-trusted surface of "build four packages from scratch".
+#
+# Uses the default GITHUB_TOKEN (contents: write, scoped to the
+# publish job only). CircleCI does not provide an equivalent token,
+# so packaging lives here instead of .circleci/config.yml.
+name: Package release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify the tag matches CMakeLists.txt's project version
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          TAG_VERSION="${TAG#v}"
+          CMAKE_VERSION="$(sed -n 's/^project(sddm-variant-manager VERSION \([^ ]*\).*/\1/p' CMakeLists.txt | head -1)"
+          if [[ "$TAG_VERSION" != "$CMAKE_VERSION" ]]; then
+            echo "::error::Tag $TAG (version $TAG_VERSION) does not match CMakeLists.txt's project version ($CMAKE_VERSION)." >&2
+            echo "Bump CMakeLists.txt (and nix/package.nix, packaging/*/*, src/main.cpp, src/qml/Main.qml) to $TAG_VERSION before tagging, or fix the tag." >&2
+            exit 1
+          fi
+          echo "Tag $TAG matches project version $CMAKE_VERSION."
+
+      - name: Build packages for every distro
+        run: ./packaging/docker/build-all.sh
+
+      - name: Upload build output as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: distro-packages
+          path: packaging/out/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download build output
+        uses: actions/download-artifact@v4
+        with:
+          name: distro-packages
+          path: packaging/out/
+
+      - name: Upload packages to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          TAG="${GITHUB_REF_NAME}"
+          files=(
+            packaging/out/arch/sddm-variant-manager-[0-9]*.pkg.tar.zst
+            packaging/out/fedora/sddm-variant-manager-[0-9]*.fc*.x86_64.rpm
+            packaging/out/debian/sddm-variant-manager_[0-9]*_amd64.deb
+            packaging/out/opensuse/sddm-variant-manager-[0-9]*.x86_64.rpm
+          )
+          if ((${#files[@]} == 0)); then
+            echo "No package artifacts found under packaging/out/" >&2
+            find packaging/out -type f -print >&2 || true
+            exit 1
+          fi
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          fi
+          gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
