@@ -22,7 +22,7 @@ Built with **Qt 6** and **Kirigami**. You do not need a Plasma session day to da
   </tr>
 </table>
 
-Prefer the previous sidebar + card look? It's preserved as-is on the [`design/classic-ui`](https://github.com/melker22/sddm-variant-manager/tree/design/classic-ui) branch.
+Prefer the previous sidebar + card look? It's preserved as-is on the [`design/classic-ui`](https://github.com/melker22/sddm-variant-manager/tree/design/classic-ui) branch, with prebuilt Arch/Fedora/openSUSE/Debian packages attached to the [v2.3.0 release](https://github.com/melker22/sddm-variant-manager/releases/tag/v2.3.0) — no need to compile it yourself.
 
 ## Contents
 
