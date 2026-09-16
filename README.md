@@ -197,7 +197,16 @@ The GUI drop-in and declarative `theme=` can conflict — remove `/etc/sddm.conf
 
 ### Arch Linux / Manjaro
 
-There is no AUR package yet. Build from `packaging/arch/` (currently **2.3.0**):
+There is no AUR package yet. Download the prebuilt package (**2.3.0**) from the [v2.3.0 release](https://github.com/melker22/sddm-variant-manager/releases/tag/v2.3.0):
+
+```bash
+curl -LO https://github.com/melker22/sddm-variant-manager/releases/download/v2.3.0/sddm-variant-manager-2.3.0-1-x86_64.pkg.tar.zst
+sudo pacman -U sddm-variant-manager-2.3.0-1-x86_64.pkg.tar.zst
+```
+
+Or `pamac install ./sddm-variant-manager-2.3.0-1-x86_64.pkg.tar.zst --no-confirm`.
+
+Or build it yourself from `packaging/arch/`:
 
 ```bash
 sudo pacman -S --needed base-devel
@@ -205,8 +214,6 @@ cd packaging/arch
 ./build-package.sh
 sudo pacman -U ./sddm-variant-manager-*.pkg.tar.zst
 ```
-
-Or `pamac install ./sddm-variant-manager-*.pkg.tar.zst --no-confirm`.
 
 This installs to `/usr/bin` and adds a `.desktop` entry. Qt 6, Kirigami, and `breeze-icons` come in via `depends`. `ffmpeg` and `git` are `optdepends` (thumbnails and experimental GitHub clone).
 
@@ -222,10 +229,37 @@ On Hyprland / other Wayland compositors, install `qt6-wayland` if the window doe
 
 ### Fedora, openSUSE, Debian / Ubuntu
 
-No COPR / OBS packages yet. Install build dependencies, then follow [From source](#from-source-manual).
+No COPR / OBS packages yet. Prebuilt packages (**2.3.0**) are attached to the [v2.3.0 release](https://github.com/melker22/sddm-variant-manager/releases/tag/v2.3.0).
+
+**Fedora 42**
+
+```bash
+curl -LO https://github.com/melker22/sddm-variant-manager/releases/download/v2.3.0/sddm-variant-manager-2.3.0-1.fc42.x86_64.rpm
+sudo dnf install ./sddm-variant-manager-2.3.0-1.fc42.x86_64.rpm
+```
+
+For video login themes: `sudo dnf install qt6-qtmultimedia qt6-qt5compat qt6-qtsvg`
+
+**openSUSE Tumbleweed**
+
+```bash
+curl -LO https://github.com/melker22/sddm-variant-manager/releases/download/v2.3.0/sddm-variant-manager-2.3.0-1.0.x86_64.rpm
+sudo zypper install ./sddm-variant-manager-2.3.0-1.0.x86_64.rpm
+```
+
+Package names on Leap may differ; prefer Tumbleweed for Qt 6 / KF6.
+
+**Debian 13 (trixie)** — needs Qt 6 and KF6 (Ubuntu 25.04+ may work; 24.04 LTS is often too old)
+
+```bash
+curl -LO https://github.com/melker22/sddm-variant-manager/releases/download/v2.3.0/sddm-variant-manager_2.3.0-1_amd64.deb
+sudo apt install ./sddm-variant-manager_2.3.0-1_amd64.deb
+```
 
 <details>
-<summary>Fedora</summary>
+<summary>Build from source on the distro instead</summary>
+
+Fedora:
 
 ```bash
 sudo dnf install cmake extra-cmake-modules ninja-build gcc-c++ \
@@ -235,12 +269,7 @@ sudo dnf install cmake extra-cmake-modules ninja-build gcc-c++ \
   breeze-icon-theme ffmpeg git sddm polkit
 ```
 
-For video login themes: `sudo dnf install qt6-qtmultimedia qt6-qt5compat qt6-qtsvg`
-
-</details>
-
-<details>
-<summary>openSUSE Tumbleweed</summary>
+openSUSE Tumbleweed:
 
 ```bash
 sudo zypper install cmake extra-cmake-modules ninja gcc-c++ \
@@ -249,14 +278,7 @@ sudo zypper install cmake extra-cmake-modules ninja gcc-c++ \
   breeze6-icons ffmpeg git sddm polkit
 ```
 
-Package names on Leap may differ; prefer Tumbleweed for Qt 6 / KF6.
-
-</details>
-
-<details>
-<summary>Debian / Ubuntu</summary>
-
-Need **Qt 6 and KF6** (Debian testing/unstable, Ubuntu 25.04+). Ubuntu 24.04 LTS is often too old.
+Debian / Ubuntu:
 
 ```bash
 sudo apt install cmake extra-cmake-modules ninja-build g++ \
@@ -264,6 +286,8 @@ sudo apt install cmake extra-cmake-modules ninja-build g++ \
   kirigami-dev libkf6coreaddons-dev libkf6i18n-dev libkf6archive-dev \
   breeze-icon-theme ffmpeg git sddm policykit-1
 ```
+
+Then follow [From source](#from-source-manual).
 
 </details>
 
