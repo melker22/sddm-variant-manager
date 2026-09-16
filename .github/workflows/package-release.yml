@@ -1,0 +1,49 @@
+# Build distro packages inside real Arch/Fedora/Debian/openSUSE
+# containers and attach them to the GitHub Release for this tag.
+#
+# Uses the default GITHUB_TOKEN (contents: write). CircleCI does not
+# provide an equivalent token, so packaging lives here instead of
+# .circleci/config.yml.
+name: Package release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build packages for every distro
+        run: ./packaging/docker/build-all.sh
+
+      - name: Upload packages to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          TAG="${GITHUB_REF_NAME}"
+          files=(
+            packaging/out/arch/sddm-variant-manager-[0-9]*.pkg.tar.zst
+            packaging/out/fedora/sddm-variant-manager-[0-9]*.fc*.x86_64.rpm
+            packaging/out/debian/sddm-variant-manager_[0-9]*_amd64.deb
+            packaging/out/opensuse/sddm-variant-manager-[0-9]*.x86_64.rpm
+          )
+          if ((${#files[@]} == 0)); then
+            echo "No package artifacts found under packaging/out/" >&2
+            find packaging/out -type f -print >&2 || true
+            exit 1
+          fi
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          fi
+          gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber

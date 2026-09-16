@@ -31,48 +31,7 @@ jobs:
           name: Headless install/rescan/remove smoke test (--qa-self-test)
           command: nix run .#default -- --qa-self-test
 
-  package-release:
-    # A real VM with Docker preinstalled, not the `docker` executor — the
-    # packaging scripts need to `docker build`/`docker run` distro images
-    # themselves (Arch, Fedora, Debian, openSUSE), which doesn't work well
-    # nested inside another container.
-    machine:
-      image: ubuntu-2204:current
-    resource_class: medium
-    steps:
-      - checkout
-      - run:
-          name: Build packages for every distro (packaging/docker/build-all.sh)
-          command: ./packaging/docker/build-all.sh
-      - run:
-          name: Install gh CLI
-          command: |
-            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-              | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-              | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
-            sudo apt-get update -qq && sudo apt-get install -y gh
-      - run:
-          name: Upload packages to the GitHub Release for this tag
-          command: |
-            gh release upload "$CIRCLE_TAG" \
-              packaging/out/arch/sddm-variant-manager-[0-9]*.pkg.tar.zst \
-              packaging/out/fedora/sddm-variant-manager-[0-9]*.fc*.x86_64.rpm \
-              packaging/out/debian/sddm-variant-manager_[0-9]*_amd64.deb \
-              packaging/out/opensuse/sddm-variant-manager-[0-9]*.x86_64.rpm \
-              --repo "$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME" \
-              --clobber
-
 workflows:
   build-and-test:
     jobs:
       - build
-
-  release-packages:
-    jobs:
-      - package-release:
-          filters:
-            tags:
-              only: /^v.*/
-            branches:
-              ignore: /.*/
